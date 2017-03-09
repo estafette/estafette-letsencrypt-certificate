@@ -91,7 +91,7 @@ func main() {
 
 					if *event.Type == k8s.EventAdded || *event.Type == k8s.EventModified {
 						//fmt.Printf("Secret %v (namespace %v) has event of type %v, processing it...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, *event.Type)
-						err := processSecret(client, secret, fmt.Sprintf("[watcher:%v]", *event.Type))
+						err := processSecret(client, secret, fmt.Sprintf("watcher:%v", *event.Type))
 						if err != nil {
 							continue
 						}
@@ -123,7 +123,7 @@ func main() {
 		if secrets != nil && secrets.Items != nil {
 			for _, secret := range secrets.Items {
 
-				err := processSecret(client, secret, "[poller]")
+				err := processSecret(client, secret, "poller")
 				if err != nil {
 					continue
 				}
@@ -213,7 +213,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 		// check if letsencrypt is enabled for this secret, hostnames are set and either the hostnames have changed or the certificate is older than 60 days and the last attempt was more than 15 minutes ago
 		if letsEncryptCertificate == "true" && len(letsEncryptCertificateHostnames) > 0 && time.Since(lastAttempt).Minutes() > 15 && (letsEncryptCertificateHostnames != kubeLetsEncryptCertificateState.Hostnames || time.Since(lastRenewed).Hours() > float64(60*24)) {
 
-			fmt.Printf("%v Secret %v.%v - Certificates are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, letsEncryptCertificateHostnames)
+			fmt.Printf("[%v] Secret %v.%v - Certificates are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, letsEncryptCertificateHostnames)
 
 			// 'lock' the secret for 15 minutes by storing the last attempt timestamp to prevent hitting the rate limit if the Let's Encrypt call fails and to prevent the watcher and the fallback polling to operate on the secret at the same time
 			kubeLetsEncryptCertificateState.LastAttempt = time.Now().Format(time.RFC3339)
@@ -234,7 +234,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			}
 
 			// load account.json
-			fmt.Printf("%v Secret %v.%v - Loading account.json...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+			fmt.Printf("[%v] Secret %v.%v - Loading account.json...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 			fileBytes, err := ioutil.ReadFile("/account/account.json")
 			if err != nil {
 				log.Println(err)
@@ -248,7 +248,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			}
 
 			// load private key
-			fmt.Printf("%v Secret %v.%v - Loading account.key...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+			fmt.Printf("[%v] Secret %v.%v - Loading account.key...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 			privateKey, err := loadPrivateKey("/account/account.key")
 			if err != nil {
 				log.Println(err)
@@ -257,11 +257,11 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			letsEncryptUser.key = privateKey
 
 			// set dns timeout
-			fmt.Printf("%v Secret %v.%v - Setting acme dns timeout to 600 seconds...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+			fmt.Printf("[%v] Secret %v.%v - Setting acme dns timeout to 600 seconds...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 			acme.DNSTimeout = time.Duration(600) * time.Second
 
 			// create letsencrypt acme client
-			fmt.Printf("%v Secret %v.%v - Creating acme client...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+			fmt.Printf("[%v] Secret %v.%v - Creating acme client...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 			client, err := acme.NewClient("https://acme-v01.api.letsencrypt.org/directory", letsEncryptUser, acme.RSA2048)
 			if err != nil {
 				log.Println(err)
@@ -269,7 +269,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			}
 
 			// get dns challenge
-			fmt.Printf("%v Secret %v.%v - Creating cloudflare provider...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+			fmt.Printf("[%v] Secret %v.%v - Creating cloudflare provider...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 			var provider acme.ChallengeProvider
 			provider, err = cloudflare.NewDNSProviderCredentials(cfAPIEmail, cfAPIKey)
 			if err != nil {
@@ -280,7 +280,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			// clean up acme challenge records in advance
 			hostnames := strings.Split(letsEncryptCertificateHostnames, ",")
 			for _, hostname := range hostnames {
-				fmt.Printf("%v Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+				fmt.Printf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
 				provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
 			}
 
@@ -289,14 +289,14 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			client.ExcludeChallenges([]acme.Challenge{acme.HTTP01, acme.TLSSNI01})
 
 			// get certificate
-			fmt.Printf("%v Secret %v.%v - Obtaining certificate...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+			fmt.Printf("[%v] Secret %v.%v - Obtaining certificate...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 			var certificate acme.CertificateResource
 			var failures map[string]error
 			certificate, failures = client.ObtainCertificate(hostnames, true, nil, false)
 
 			// clean up acme challenge records afterwards
 			for _, hostname := range hostnames {
-				fmt.Printf("%v Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+				fmt.Printf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
 				provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
 			}
 
@@ -313,7 +313,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			kubeLetsEncryptCertificateState.Hostnames = letsEncryptCertificateHostnames
 			kubeLetsEncryptCertificateState.LastRenewed = time.Now().Format(time.RFC3339)
 
-			fmt.Printf("%v Secret %v.%v - Updating secret because new certificates have been obtained...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+			fmt.Printf("[%v] Secret %v.%v - Updating secret because new certificates have been obtained...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 
 			// serialize state and store it in the annotation
 			kubeLetsEncryptCertificateStateByteArray, err = json.Marshal(kubeLetsEncryptCertificateState)
@@ -328,13 +328,13 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 				secret.Data = make(map[string][]byte)
 			}
 
-			fmt.Printf("%v Secret %v.%v - Secret has %v data items before writing the certificates...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
+			fmt.Printf("[%v] Secret %v.%v - Secret has %v data items before writing the certificates...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
 
 			secret.Data["ssl.crt"] = certificate.Certificate
 			secret.Data["ssl.key"] = certificate.PrivateKey
 			secret.Data["ssl.pem"] = bytes.Join([][]byte{certificate.Certificate, certificate.PrivateKey}, []byte{})
 
-			fmt.Printf("%v Secret %v.%v - Secret has %v data items after writing the certificates...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
+			fmt.Printf("[%v] Secret %v.%v - Secret has %v data items after writing the certificates...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
 
 			// update secret, because the data and state annotation have changed
 			secret, err = kubeclient.CoreV1().UpdateSecret(context.Background(), secret)
@@ -343,7 +343,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 				return err
 			}
 
-			fmt.Printf("%v Secret %v.%v - Certificates have been stored in secret successfully...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
+			fmt.Printf("[%v] Secret %v.%v - Certificates have been stored in secret successfully...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 		}
 	}
 
