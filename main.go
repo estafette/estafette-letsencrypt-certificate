@@ -13,9 +13,12 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/xenolf/lego/acme"
 	"github.com/xenolf/lego/providers/dns/cloudflare"
@@ -60,6 +63,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// start prometheus
+	go func() {
+		fmt.Println("Serving Prometheus metrics at :9101/metrics...")
+		flag.Parse()
+		http.Handle("/metrics", promhttp.Handler())
+		log.Fatal(http.ListenAndServe(*addr, nil))
+	}()
 
 	// watch secrets for all namespaces
 	go func() {
