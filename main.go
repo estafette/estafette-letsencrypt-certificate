@@ -225,7 +225,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 
 			// get dns challenge
 			var provider acme.ChallengeProvider
-			provider, err = cloudflare.NewDNSProvider()
+			provider, err = cloudflare.NewDNSProviderCredentials(cfAPIEmail, cfAPIKey)
 			if err != nil {
 				log.Println(err)
 				return err
