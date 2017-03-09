@@ -286,6 +286,10 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 			secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(kubeLetsEncryptCertificateStateByteArray)
 
 			// store the certificates
+			if secret.Data == nil {
+				secret.Data = make(map[string][]byte)
+			}
+
 			secret.Data["ssl.crt"] = certificate.Certificate
 			secret.Data["ssl.key"] = certificate.PrivateKey
 			secret.Data["ssl.pem"] = bytes.Join([][]byte{certificate.Certificate, certificate.PrivateKey}, []byte{})
