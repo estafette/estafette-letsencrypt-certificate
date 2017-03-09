@@ -237,8 +237,6 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 				log.Println(err)
 				return err
 			}
-			client.SetChallengeProvider(acme.DNS01, provider)
-			client.ExcludeChallenges([]acme.Challenge{acme.HTTP01, acme.TLSSNI01})
 
 			// clean up acme challenge records in advance
 			hostnames := strings.Split(letsEncryptCertificateHostnames, ",")
@@ -246,6 +244,10 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 				fmt.Printf("Cleaning up TXT record _acme-challenge.%v for secret %v (namespace %v)...\n", hostname, *secret.Metadata.Name, *secret.Metadata.Namespace)
 				provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
 			}
+
+			// set challenge and provider
+			client.SetChallengeProvider(acme.DNS01, provider)
+			client.ExcludeChallenges([]acme.Challenge{acme.HTTP01, acme.TLSSNI01})
 
 			// get certificate
 			fmt.Printf("Obtaining certificate for secret %v (namespace %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
