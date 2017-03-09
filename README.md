@@ -18,6 +18,18 @@ kind: Namespace
 metadata:
   name: estafette
 ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: estafette-letsencrypt-certificate-account
+  namespace: estafette
+  labels:
+    app: estafette-letsencrypt-certificate
+type: Opaque
+data:
+  account.json: "****"
+  account.key: "****"
+---
 apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
@@ -58,6 +70,13 @@ spec:
             port: 9101
           initialDelaySeconds: 30
           timeoutSeconds: 1
+        volumeMounts:
+        - name: letsencrypt-account
+          mountPath: /account
+      volumes:
+      - name: letsencrypt-account
+        secret:
+          secretName: estafette-letsencrypt-certificate-account
 ```
 
 Once it's running put the following annotations on a secret and deploy. The estafette-letsencrypt-certificate application will watch changes to secrets and process those. Once approximately every 300 seconds it also scans all secrets as a safety net.
@@ -76,7 +95,7 @@ metadata:
 type: Opaque
 ```
 
-In the secret a ssl.crt, ssl.pem and ssl.key file will be stored. Mount these in your application (or sidecar container) as follows.
+In the secret an ssl.crt, ssl.pem and ssl.key file will be stored. Mount these in your application (or sidecar container) as follows. Re-applying the secret doesn't overwrite the certificates.
 
 ```yaml
 apiVersion: extensions/v1beta1
@@ -112,10 +131,10 @@ spec:
         secret:
           secretName: myapplication-letsencrypt-certificate
           items:
-            - key: ssl.crt
-              path: nginx.crt
-            - key: ssl.pem
-              path: nginx.pem
-            - key: ssl.key
-              path: nginx.key
+          - key: ssl.crt
+            path: nginx.crt
+          - key: ssl.pem
+            path: nginx.pem
+          - key: ssl.key
+            path: nginx.key
 ```
