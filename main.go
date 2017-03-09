@@ -191,7 +191,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 
 		durationSinceLastRenewed := time.Since(lastRenewed)
 
-		fmt.Printf("Certificates in secret %v (namespace %v) have last been renewed %v hours ago at %v...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, durationSinceLastRenewed.Hours(), lastRenewed)
+		fmt.Printf("Certificates in secret %v (namespace %v) have last been renewed %v hours ago at %v (letsEncryptCertificate: %v, letsEncryptCertificateHostnames: %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, durationSinceLastRenewed.Hours(), lastRenewed, letsEncryptCertificate, letsEncryptCertificateHostnames)
 
 		// check if letsencrypt is enabled for this secret, hostnames are set and either the hostnames have changed or the certificate is older than 60 days
 		if letsEncryptCertificate == "true" && len(letsEncryptCertificateHostnames) > 0 && (letsEncryptCertificateHostnames != kubeLetsEncryptCertificateState.Hostnames || durationSinceLastRenewed.Hours() > float64(60*24)) {
@@ -199,6 +199,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 			fmt.Printf("Certificates in secret %v (namespace %v) are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, letsEncryptCertificateHostnames)
 
 			// load account.json
+			fmt.Printf("Loading account.json for secret %v (namespace %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
 			fileBytes, err := ioutil.ReadFile("/account/account.json")
 			if err != nil {
 				log.Println(err)
@@ -212,6 +213,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 			}
 
 			// load private key
+			fmt.Printf("Loading account.key for secret %v (namespace %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
 			privateKey, err := loadPrivateKey("/account/account.key")
 			if err != nil {
 				log.Println(err)
@@ -220,6 +222,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 			letsEncryptUser.key = privateKey
 
 			// create letsencrypt acme client
+			fmt.Printf("Creating acme client for secret %v (namespace %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
 			client, err := acme.NewClient("https://acme-v01.api.letsencrypt.org/directory", letsEncryptUser, acme.RSA2048)
 			if err != nil {
 				log.Println(err)
@@ -227,6 +230,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 			}
 
 			// get dns challenge
+			fmt.Printf("Creating cloudflare provider for secret %v (namespace %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
 			var provider acme.ChallengeProvider
 			provider, err = cloudflare.NewDNSProviderCredentials(cfAPIEmail, cfAPIKey)
 			if err != nil {
@@ -236,13 +240,22 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 			client.SetChallengeProvider(acme.DNS01, provider)
 			client.ExcludeChallenges([]acme.Challenge{acme.HTTP01, acme.TLSSNI01})
 
+			// clean up acme challenge records in advance
+			hostnames := strings.Split(letsEncryptCertificateHostnames, ",")
+			for _, hostname := range hostnames {
+				provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
+			}
+
 			// get certificate
+			fmt.Printf("Obtaining certificate for secret %v (namespace %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
 			var certificate acme.CertificateResource
 			var failures map[string]error
-			hostnames := strings.Split(letsEncryptCertificateHostnames, ",")
 			certificate, failures = client.ObtainCertificate(hostnames, true, nil)
 
-			// TODO clean up dns txt records
+			// clean up acme challenge records afterwards
+			for _, hostname := range hostnames {
+				provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
+			}
 
 			if len(failures) > 0 {
 				for k, v := range failures {
