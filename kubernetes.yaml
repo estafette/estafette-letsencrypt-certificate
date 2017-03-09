@@ -10,7 +10,7 @@ metadata:
   namespace: ${NAMESPACE}
   labels:
     app: ${APP_NAME}
-    team: {TEAM_NAME}
+    team: ${TEAM_NAME}
 type: Opaque
 data:
   account.json: ${ACCOUNT_JSON}
