@@ -33,6 +33,7 @@ const annotationLetsEncryptCertificateState string = "estafette.io/letsencrypt-c
 type KubeLetsEncryptCertificateState struct {
 	Hostnames   string `json:"hostnames"`
 	LastRenewed string `json:"lastRenewed"`
+	LastAttempt string `json:"lastAttempt"`
 }
 
 var (
@@ -188,11 +189,20 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 				lastRenewed = time.Time{}
 			}
 		}
-
 		durationSinceLastRenewed := time.Since(lastRenewed)
 
-		// check if letsencrypt is enabled for this secret, hostnames are set and either the hostnames have changed or the certificate is older than 60 days
-		if letsEncryptCertificate == "true" && len(letsEncryptCertificateHostnames) > 0 && (letsEncryptCertificateHostnames != kubeLetsEncryptCertificateState.Hostnames || durationSinceLastRenewed.Hours() > float64(60*24)) {
+		lastAttempt := time.Time{}
+		if kubeLetsEncryptCertificateState.LastAttempt != "" {
+			var err error
+			lastAttempt, err = time.Parse(time.RFC3339, kubeLetsEncryptCertificateState.LastAttempt)
+			if err != nil {
+				lastAttempt = time.Time{}
+			}
+		}
+		durationSinceLastAttempt := time.Since(lastAttempt)
+
+		// check if letsencrypt is enabled for this secret, hostnames are set and either the hostnames have changed or the certificate is older than 60 days and the last attempt was more than 15 minutes ago
+		if letsEncryptCertificate == "true" && len(letsEncryptCertificateHostnames) > 0 && durationSinceLastAttempt.Minutes() > 15 && (letsEncryptCertificateHostnames != kubeLetsEncryptCertificateState.Hostnames || durationSinceLastRenewed.Hours() > float64(60*24)) {
 
 			fmt.Printf("Certificates in secret %v (namespace %v) are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, letsEncryptCertificateHostnames)
 
@@ -263,9 +273,26 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 				provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
 			}
 
+			// set last attempt timestamp
+			kubeLetsEncryptCertificateState.LastAttempt = time.Now().Format(time.RFC3339)
+
 			if len(failures) > 0 {
 				for k, v := range failures {
 					log.Printf("[%s] Could not obtain certificates\n\t%s", k, v.Error())
+				}
+
+				// serialize state and store it in the annotation
+				kubeLetsEncryptCertificateStateByteArray, err := json.Marshal(kubeLetsEncryptCertificateState)
+				if err != nil {
+					log.Println(err)
+					return err
+				}
+				secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(kubeLetsEncryptCertificateStateByteArray)
+
+				// update secret, with last attempt
+				secret, err = kubeclient.CoreV1().UpdateSecret(context.Background(), secret)
+				if err != nil {
+					log.Println(err)
 				}
 
 				return errors.New("Generating certificates has failed")
