@@ -1,21 +1,27 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto"
-	cryptorand "crypto/rand"
-	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/xenolf/lego/acme"
+	"github.com/xenolf/lego/providers/dns/cloudflare"
 
 	"github.com/ericchiang/k8s"
 	apiv1 "github.com/ericchiang/k8s/api/v1"
-	"github.com/xenolf/lego/acme"
 )
 
 const annotationLetsEncryptCertificate string = "estafette.io/letsencrypt-certificate"
@@ -27,22 +33,6 @@ const annotationLetsEncryptCertificateState string = "estafette.io/letsencrypt-c
 type KubeLetsEncryptCertificateState struct {
 	Hostnames   string `json:"hostnames"`
 	LastRenewed string `json:"lastRenewed"`
-}
-
-type MyUser struct {
-	Email        string
-	Registration *acme.RegistrationResource
-	key          crypto.PrivateKey
-}
-
-func (u MyUser) GetEmail() string {
-	return u.Email
-}
-func (u MyUser) GetRegistration() *acme.RegistrationResource {
-	return u.Registration
-}
-func (u MyUser) GetPrivateKey() crypto.PrivateKey {
-	return u.key
 }
 
 var (
@@ -89,7 +79,10 @@ func main() {
 
 					if *event.Type == k8s.EventAdded || *event.Type == k8s.EventModified {
 						fmt.Printf("Secret %v (namespace %v) has event of type %v, processing it...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, *event.Type)
-						processSecret(client, secret)
+						err := processSecret(client, secret)
+						if err != nil {
+							continue
+						}
 					} else {
 						fmt.Printf("Secret %v (namespace %v) has event of type %v, skipping it...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, *event.Type)
 					}
@@ -118,7 +111,7 @@ func main() {
 		if secrets != nil && secrets.Items != nil {
 			for _, secret := range secrets.Items {
 
-				processSecret(client, secret)
+				err := processSecret(client, secret)
 				if err != nil {
 					continue
 				}
@@ -137,6 +130,28 @@ func applyJitter(input int) (output int) {
 	deviation := int(0.25 * float64(input))
 
 	return input - deviation + r.Intn(2*deviation)
+}
+
+type LetsEncryptUser struct {
+	Email        string
+	Registration *acme.RegistrationResource
+	key          crypto.PrivateKey
+}
+
+func (u LetsEncryptUser) GetEmail() string {
+	return u.Email
+}
+func (u LetsEncryptUser) GetRegistration() *acme.RegistrationResource {
+	return u.Registration
+}
+func (u LetsEncryptUser) GetPrivateKey() crypto.PrivateKey {
+	return u.key
+}
+
+type Account struct {
+	Email        string `json:"email"`
+	key          crypto.PrivateKey
+	Registration *acme.RegistrationResource `json:"registration"`
 }
 
 func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
@@ -173,82 +188,112 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 
 		durationSinceLastRenewed := time.Since(lastRenewed)
 
-		if letsEncryptCertificate == "true" && (letsEncryptCertificateHostnames != kubeLetsEncryptCertificateState.Hostnames || durationSinceLastRenewed.Hours() > float64(60*24)) {
+		fmt.Printf("Certificates in secret %v (namespace %v) have last been renewed %v hours ago at %v...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, durationSinceLastRenewed.Hours(), lastRenewed)
 
-			updateSecret := false
+		// check if letsencrypt is enabled for this secret, hostnames are set and either the hostnames have changed or the certificate is older than 60 days
+		if letsEncryptCertificate == "true" && len(letsEncryptCertificateHostnames) > 0 && (letsEncryptCertificateHostnames != kubeLetsEncryptCertificateState.Hostnames || durationSinceLastRenewed.Hours() > float64(60*24)) {
 
-			// generate or renew certificates
+			fmt.Printf("Certificates in secret %v (namespace %v) are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, letsEncryptCertificateHostnames)
 
-			// Create a user. New accounts need an email and private key to start.
-			const rsaKeySize = 2048
-			privateKey, err := rsa.GenerateKey(cryptorand.Reader, rsaKeySize)
+			// load account.json
+			fileBytes, err := ioutil.ReadFile("/account/account.json")
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return err
 			}
-			myUser := MyUser{
-				Email: "you@yours.com",
-				key:   privateKey,
-			}
-
-			client, err := acme.NewClient("https://acme-v01.api.letsencrypt.org/directory", &myUser, acme.RSA2048)
+			var letsEncryptUser LetsEncryptUser
+			err = json.Unmarshal(fileBytes, &letsEncryptUser)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return err
 			}
 
-			// New users will need to register
-			reg, err := client.Register()
+			// load private key
+			privateKey, err := loadPrivateKey("/account/account.key")
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return err
 			}
-			myUser.Registration = reg
+			letsEncryptUser.key = privateKey
 
-			// SAVE THE USER.
-
-			// The client has a URL to the current Let's Encrypt Subscriber
-			// Agreement. The user will need to agree to it.
-			err = client.AgreeToTOS()
+			// create letsencrypt acme client
+			client, err := acme.NewClient("https://acme-v01.api.letsencrypt.org/directory", letsEncryptUser, acme.RSA2048)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return err
 			}
 
-			// The acme library takes care of completing the challenges to obtain the certificate(s).
-			// The domains must resolve to this machine or you have to use the DNS challenge.
-			bundle := false
-			certificates, failures := client.ObtainCertificate([]string{"mydomain.com"}, bundle, privateKey)
+			// get dns challenge
+			var provider acme.ChallengeProvider
+			provider, err = cloudflare.NewDNSProvider()
+			if err != nil {
+				log.Println(err)
+				return err
+			}
+			client.SetChallengeProvider(acme.DNS01, provider)
+			client.ExcludeChallenges([]acme.Challenge{acme.HTTP01, acme.TLSSNI01})
+
+			// get certificate
+			var certificate acme.CertificateResource
+			var failures map[string]error
+			hostnames := strings.Split(letsEncryptCertificateHostnames, ",")
+			certificate, failures = client.ObtainCertificate(hostnames, true, nil)
+
+			// TODO clean up dns txt records
+
 			if len(failures) > 0 {
-				log.Fatal(failures)
+				for k, v := range failures {
+					log.Printf("[%s] Could not obtain certificates\n\t%s", k, v.Error())
+				}
+
+				return errors.New("Generating certificates has failed")
 			}
 
-			// Each certificate comes back with the cert bytes, the bytes of the client's
-			// private key, and a certificate URL. SAVE THESE TO DISK.
-			fmt.Printf("%#v\n", certificates)
+			// update the secret
+			kubeLetsEncryptCertificateState.Hostnames = letsEncryptCertificateHostnames
+			kubeLetsEncryptCertificateState.LastRenewed = time.Now().Format(time.RFC3339)
 
-			if updateSecret {
+			fmt.Printf("Updating secret %v (namespace %v) because certificates have changed...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
 
-				// if any state property changed make sure to update all
-				kubeLetsEncryptCertificateState.Hostnames = letsEncryptCertificateHostnames
-				kubeLetsEncryptCertificateState.LastRenewed = time.Now().Format(time.RFC3339)
+			// serialize state and store it in the annotation
+			kubeLetsEncryptCertificateStateByteArray, err := json.Marshal(kubeLetsEncryptCertificateState)
+			if err != nil {
+				log.Println(err)
+				return err
+			}
+			secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(kubeLetsEncryptCertificateStateByteArray)
 
-				fmt.Printf("Updating secret %v (namespace %v) because state has changed...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
+			// store the certificates
+			secret.Data["ssl.crt"] = certificate.Certificate
+			secret.Data["ssl.key"] = certificate.PrivateKey
+			secret.Data["ssl.pem"] = bytes.Join([][]byte{certificate.Certificate, certificate.PrivateKey}, []byte{})
 
-				// serialize state and store it in the annotation
-				kubeLetsEncryptCertificateStateByteArray, err := json.Marshal(kubeLetsEncryptCertificateState)
-				if err != nil {
-					log.Println(err)
-					return err
-				}
-				secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(kubeLetsEncryptCertificateStateByteArray)
-
-				// update secret, because the state annotations have changed
-				secret, err = kubeclient.CoreV1().UpdateSecret(context.Background(), secret)
-				if err != nil {
-					log.Println(err)
-					return err
-				}
-
+			// update secret, because the data and state annotation have changed
+			secret, err = kubeclient.CoreV1().UpdateSecret(context.Background(), secret)
+			if err != nil {
+				log.Println(err)
+				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+func loadPrivateKey(file string) (crypto.PrivateKey, error) {
+	keyBytes, err := ioutil.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+
+	keyBlock, _ := pem.Decode(keyBytes)
+
+	switch keyBlock.Type {
+	case "RSA PRIVATE KEY":
+		return x509.ParsePKCS1PrivateKey(keyBlock.Bytes)
+	case "EC PRIVATE KEY":
+		return x509.ParseECPrivateKey(keyBlock.Bytes)
+	}
+
+	return nil, errors.New("Unknown private key type.")
 }

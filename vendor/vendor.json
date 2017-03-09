@@ -3,6 +3,10 @@
 	"ignore": "test",
 	"package": [
 		{
+			"path": "-v",
+			"revision": ""
+		},
+		{
 			"path": "appengine",
 			"revision": ""
 		},
@@ -444,6 +448,14 @@
 		{
 			"checksumSHA1": "inqOTbxxijyBY6sUSTMCKDX/Od8=",
 			"path": "github.com/xenolf/lego/acme",
+			"revision": "96a24777ffb3c6a25f6bb0b3a7997969c1fcde4b",
+			"revisionTime": "2016-04-19T18:57:16Z",
+			"version": "v0.3.1",
+			"versionExact": "v0.3.1"
+		},
+		{
+			"checksumSHA1": "/t5Rvcjggjrl1V861Pz3g0XRSm8=",
+			"path": "github.com/xenolf/lego/providers/dns",
 			"revision": "96a24777ffb3c6a25f6bb0b3a7997969c1fcde4b",
 			"revisionTime": "2016-04-19T18:57:16Z",
 			"version": "v0.3.1",
