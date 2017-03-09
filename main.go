@@ -156,6 +156,9 @@ type Account struct {
 
 func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 
+	cfAPIKey := os.Getenv("CF_API_KEY")
+	cfAPIEmail := os.Getenv("CF_API_EMAIL")
+
 	if &secret != nil && &secret.Metadata != nil && &secret.Metadata.Annotations != nil {
 
 		// get annotations or set default value
