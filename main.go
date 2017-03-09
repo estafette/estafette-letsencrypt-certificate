@@ -189,7 +189,6 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 				lastRenewed = time.Time{}
 			}
 		}
-		durationSinceLastRenewed := time.Since(lastRenewed)
 
 		lastAttempt := time.Time{}
 		if kubeLetsEncryptCertificateState.LastAttempt != "" {
@@ -199,12 +198,29 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 				lastAttempt = time.Time{}
 			}
 		}
-		durationSinceLastAttempt := time.Since(lastAttempt)
 
 		// check if letsencrypt is enabled for this secret, hostnames are set and either the hostnames have changed or the certificate is older than 60 days and the last attempt was more than 15 minutes ago
-		if letsEncryptCertificate == "true" && len(letsEncryptCertificateHostnames) > 0 && durationSinceLastAttempt.Minutes() > 15 && (letsEncryptCertificateHostnames != kubeLetsEncryptCertificateState.Hostnames || durationSinceLastRenewed.Hours() > float64(60*24)) {
+		if letsEncryptCertificate == "true" && len(letsEncryptCertificateHostnames) > 0 && time.Since(lastAttempt).Minutes() > 15 && (letsEncryptCertificateHostnames != kubeLetsEncryptCertificateState.Hostnames || time.Since(lastRenewed).Hours() > float64(60*24)) {
 
 			fmt.Printf("Certificates in secret %v (namespace %v) are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, letsEncryptCertificateHostnames)
+
+			// 'lock' the secret for 15 minutes by storing the last attempt timestamp to prevent hitting the rate limit if the Let's Encrypt call fails and to prevent the watcher and the fallback polling to operate on the secret at the same time
+			kubeLetsEncryptCertificateState.LastAttempt = time.Now().Format(time.RFC3339)
+
+			// serialize state and store it in the annotation
+			kubeLetsEncryptCertificateStateByteArray, err := json.Marshal(kubeLetsEncryptCertificateState)
+			if err != nil {
+				log.Println(err)
+				return err
+			}
+			secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(kubeLetsEncryptCertificateStateByteArray)
+
+			// update secret, with last attempt; this will fire an event for the watcher, but this shouldn't lead to any action because storing the last attempt locks the secret for 15 minutes
+			secret, err = kubeclient.CoreV1().UpdateSecret(context.Background(), secret)
+			if err != nil {
+				log.Println(err)
+				return err
+			}
 
 			// load account.json
 			fmt.Printf("Loading account.json for secret %v (namespace %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
@@ -273,26 +289,10 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 				provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
 			}
 
-			// set last attempt timestamp
-			kubeLetsEncryptCertificateState.LastAttempt = time.Now().Format(time.RFC3339)
-
+			// if obtaining secret failed exit and retry after more than 15 minutes
 			if len(failures) > 0 {
 				for k, v := range failures {
 					log.Printf("[%s] Could not obtain certificates\n\t%s", k, v.Error())
-				}
-
-				// serialize state and store it in the annotation
-				kubeLetsEncryptCertificateStateByteArray, err := json.Marshal(kubeLetsEncryptCertificateState)
-				if err != nil {
-					log.Println(err)
-					return err
-				}
-				secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(kubeLetsEncryptCertificateStateByteArray)
-
-				// update secret, with last attempt
-				secret, err = kubeclient.CoreV1().UpdateSecret(context.Background(), secret)
-				if err != nil {
-					log.Println(err)
 				}
 
 				return errors.New("Generating certificates has failed")
@@ -302,10 +302,10 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 			kubeLetsEncryptCertificateState.Hostnames = letsEncryptCertificateHostnames
 			kubeLetsEncryptCertificateState.LastRenewed = time.Now().Format(time.RFC3339)
 
-			fmt.Printf("Updating secret %v (namespace %v) because certificates have changed...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
+			fmt.Printf("Updating secret %v (namespace %v) because new certificates have been obtained...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
 
 			// serialize state and store it in the annotation
-			kubeLetsEncryptCertificateStateByteArray, err := json.Marshal(kubeLetsEncryptCertificateState)
+			kubeLetsEncryptCertificateStateByteArray, err = json.Marshal(kubeLetsEncryptCertificateState)
 			if err != nil {
 				log.Println(err)
 				return err
