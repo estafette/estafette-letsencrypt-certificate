@@ -5,7 +5,6 @@ package googlecloud
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/xenolf/lego/acme"
@@ -69,6 +68,16 @@ func (c *DNSProvider) Present(domain, token, keyAuth string) error {
 		Additions: []*dns.ResourceRecordSet{rec},
 	}
 
+	// Look for existing records.
+	list, err := c.client.ResourceRecordSets.List(c.project, zone).Name(fqdn).Type("TXT").Do()
+	if err != nil {
+		return err
+	}
+	if len(list.Rrsets) > 0 {
+		// Attempt to delete the existing records when adding our new one.
+		change.Deletions = list.Rrsets
+	}
+
 	chg, err := c.client.Changes.Create(c.project, zone, change).Do()
 	if err != nil {
 		return err
@@ -121,20 +130,24 @@ func (c *DNSProvider) Timeout() (timeout, interval time.Duration) {
 
 // getHostedZone returns the managed-zone
 func (c *DNSProvider) getHostedZone(domain string) (string, error) {
+	authZone, err := acme.FindZoneByFqdn(acme.ToFqdn(domain), acme.RecursiveNameservers)
+	if err != nil {
+		return "", err
+	}
 
-	zones, err := c.client.ManagedZones.List(c.project).Do()
+	zones, err := c.client.ManagedZones.
+		List(c.project).
+		DnsName(authZone).
+		Do()
 	if err != nil {
 		return "", fmt.Errorf("GoogleCloud API call failed: %v", err)
 	}
 
-	for _, z := range zones.ManagedZones {
-		if strings.HasSuffix(domain+".", z.DnsName) {
-			return z.Name, nil
-		}
+	if len(zones.ManagedZones) == 0 {
+		return "", fmt.Errorf("No matching GoogleCloud domain found for domain %s", authZone)
 	}
 
-	return "", fmt.Errorf("No matching GoogleCloud domain found for domain %s", domain)
-
+	return zones.ManagedZones[0].Name, nil
 }
 
 func (c *DNSProvider) findTxtRecords(zone, fqdn string) ([]*dns.ResourceRecordSet, error) {

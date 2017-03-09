@@ -191,8 +191,6 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 
 		durationSinceLastRenewed := time.Since(lastRenewed)
 
-		fmt.Printf("Certificates in secret %v (namespace %v) have last been renewed %v hours ago at %v (letsEncryptCertificate: %v, letsEncryptCertificateHostnames: %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, durationSinceLastRenewed.Hours(), lastRenewed, letsEncryptCertificate, letsEncryptCertificateHostnames)
-
 		// check if letsencrypt is enabled for this secret, hostnames are set and either the hostnames have changed or the certificate is older than 60 days
 		if letsEncryptCertificate == "true" && len(letsEncryptCertificateHostnames) > 0 && (letsEncryptCertificateHostnames != kubeLetsEncryptCertificateState.Hostnames || durationSinceLastRenewed.Hours() > float64(60*24)) {
 
@@ -220,6 +218,10 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 				return err
 			}
 			letsEncryptUser.key = privateKey
+
+			// set dns timeout
+			fmt.Printf("Setting acme dns timeout to 600 seconds for secret %v (namespace %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
+			acme.DNSTimeout = time.Duration(600) * time.Second
 
 			// create letsencrypt acme client
 			fmt.Printf("Creating acme client for secret %v (namespace %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
@@ -253,7 +255,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret) error {
 			fmt.Printf("Obtaining certificate for secret %v (namespace %v)...\n", *secret.Metadata.Name, *secret.Metadata.Namespace)
 			var certificate acme.CertificateResource
 			var failures map[string]error
-			certificate, failures = client.ObtainCertificate(hostnames, true, nil)
+			certificate, failures = client.ObtainCertificate(hostnames, true, nil, false)
 
 			// clean up acme challenge records afterwards
 			for _, hostname := range hostnames {

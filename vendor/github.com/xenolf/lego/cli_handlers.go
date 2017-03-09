@@ -2,25 +2,21 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path"
 	"strings"
 	"time"
 
-	"github.com/codegangsta/cli"
+	"github.com/urfave/cli"
 	"github.com/xenolf/lego/acme"
-	"github.com/xenolf/lego/providers/dns/cloudflare"
-	"github.com/xenolf/lego/providers/dns/digitalocean"
-	"github.com/xenolf/lego/providers/dns/dnsimple"
-	"github.com/xenolf/lego/providers/dns/dyn"
-	"github.com/xenolf/lego/providers/dns/gandi"
-	"github.com/xenolf/lego/providers/dns/googlecloud"
-	"github.com/xenolf/lego/providers/dns/namecheap"
-	"github.com/xenolf/lego/providers/dns/rfc2136"
-	"github.com/xenolf/lego/providers/dns/route53"
-	"github.com/xenolf/lego/providers/dns/vultr"
+	"github.com/xenolf/lego/providers/dns"
+	"github.com/xenolf/lego/providers/http/memcached"
 	"github.com/xenolf/lego/providers/http/webroot"
 )
 
@@ -32,6 +28,26 @@ func checkFolder(path string) error {
 }
 
 func setup(c *cli.Context) (*Configuration, *Account, *acme.Client) {
+
+	if c.GlobalIsSet("http-timeout") {
+		acme.HTTPClient = http.Client{Timeout: time.Duration(c.GlobalInt("http-timeout")) * time.Second}
+	}
+
+	if c.GlobalIsSet("dns-timeout") {
+		acme.DNSTimeout = time.Duration(c.GlobalInt("dns-timeout")) * time.Second
+	}
+
+	if len(c.GlobalStringSlice("dns-resolvers")) > 0 {
+		resolvers := []string{}
+		for _, resolver := range c.GlobalStringSlice("dns-resolvers") {
+			if !strings.Contains(resolver, ":") {
+				resolver += ":53"
+			}
+			resolvers = append(resolvers, resolver)
+		}
+		acme.RecursiveNameservers = resolvers
+	}
+
 	err := checkFolder(c.GlobalString("path"))
 	if err != nil {
 		logger().Fatalf("Could not check/create path: %s", err.Error())
@@ -71,6 +87,18 @@ func setup(c *cli.Context) (*Configuration, *Account, *acme.Client) {
 		// infer that the user also wants to exclude all other challenges
 		client.ExcludeChallenges([]acme.Challenge{acme.DNS01, acme.TLSSNI01})
 	}
+	if c.GlobalIsSet("memcached-host") {
+		provider, err := memcached.NewMemcachedProvider(c.GlobalStringSlice("memcached-host"))
+		if err != nil {
+			logger().Fatal(err)
+		}
+
+		client.SetChallengeProvider(acme.HTTP01, provider)
+
+		// --memcached-host=foo:11211 indicates that the user specifically want to do a HTTP challenge
+		// infer that the user also wants to exclude all other challenges
+		client.ExcludeChallenges([]acme.Challenge{acme.DNS01, acme.TLSSNI01})
+	}
 	if c.GlobalIsSet("http") {
 		if strings.Index(c.GlobalString("http"), ":") == -1 {
 			logger().Fatalf("The --http switch only accepts interface:port or :port for its argument.")
@@ -86,33 +114,7 @@ func setup(c *cli.Context) (*Configuration, *Account, *acme.Client) {
 	}
 
 	if c.GlobalIsSet("dns") {
-		var err error
-		var provider acme.ChallengeProvider
-		switch c.GlobalString("dns") {
-		case "cloudflare":
-			provider, err = cloudflare.NewDNSProvider()
-		case "digitalocean":
-			provider, err = digitalocean.NewDNSProvider()
-		case "dnsimple":
-			provider, err = dnsimple.NewDNSProvider()
-		case "dyn":
-			provider, err = dyn.NewDNSProvider()
-		case "gandi":
-			provider, err = gandi.NewDNSProvider()
-		case "gcloud":
-			provider, err = googlecloud.NewDNSProvider()
-		case "manual":
-			provider, err = acme.NewDNSProviderManual()
-		case "namecheap":
-			provider, err = namecheap.NewDNSProvider()
-		case "route53":
-			provider, err = route53.NewDNSProvider()
-		case "rfc2136":
-			provider, err = rfc2136.NewDNSProvider()
-		case "vultr":
-			provider, err = vultr.NewDNSProvider()
-		}
-
+    provider, err := dns.NewDNSChallengeProviderByName(c.GlobalString("dns"))
 		if err != nil {
 			logger().Fatal(err)
 		}
@@ -132,16 +134,39 @@ func saveCertRes(certRes acme.CertificateResource, conf *Configuration) {
 	// as web servers would not be able to work with a combined file.
 	certOut := path.Join(conf.CertPath(), certRes.Domain+".crt")
 	privOut := path.Join(conf.CertPath(), certRes.Domain+".key")
+	pemOut := path.Join(conf.CertPath(), certRes.Domain+".pem")
 	metaOut := path.Join(conf.CertPath(), certRes.Domain+".json")
+	issuerOut := path.Join(conf.CertPath(), certRes.Domain+".issuer.crt")
 
 	err := ioutil.WriteFile(certOut, certRes.Certificate, 0600)
 	if err != nil {
 		logger().Fatalf("Unable to save Certificate for domain %s\n\t%s", certRes.Domain, err.Error())
 	}
 
-	err = ioutil.WriteFile(privOut, certRes.PrivateKey, 0600)
-	if err != nil {
-		logger().Fatalf("Unable to save PrivateKey for domain %s\n\t%s", certRes.Domain, err.Error())
+	if certRes.IssuerCertificate != nil {
+		err = ioutil.WriteFile(issuerOut, certRes.IssuerCertificate, 0600)
+		if err != nil {
+			logger().Fatalf("Unable to save IssuerCertificate for domain %s\n\t%s", certRes.Domain, err.Error())
+		}
+	}
+
+	if certRes.PrivateKey != nil {
+		// if we were given a CSR, we don't know the private key
+		err = ioutil.WriteFile(privOut, certRes.PrivateKey, 0600)
+		if err != nil {
+			logger().Fatalf("Unable to save PrivateKey for domain %s\n\t%s", certRes.Domain, err.Error())
+		}
+
+		if conf.context.GlobalBool("pem") {
+			err = ioutil.WriteFile(pemOut, bytes.Join([][]byte{certRes.Certificate, certRes.PrivateKey}, nil), 0600)
+			if err != nil {
+				logger().Fatalf("Unable to save Certificate and PrivateKey in .pem for domain %s\n\t%s", certRes.Domain, err.Error())
+			}
+		}
+
+	} else if conf.context.GlobalBool("pem") {
+		// we don't have the private key; can't write the .pem file
+		logger().Fatalf("Unable to save pem without private key for domain %s\n\t%s; are you using a CSR?", certRes.Domain, err.Error())
 	}
 
 	jsonBytes, err := json.MarshalIndent(certRes, "", "\t")
@@ -196,7 +221,38 @@ func handleTOS(c *cli.Context, client *acme.Client, acc *Account) {
 	}
 }
 
-func run(c *cli.Context) {
+func readCSRFile(filename string) (*x509.CertificateRequest, error) {
+	bytes, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	raw := bytes
+
+	// see if we can find a PEM-encoded CSR
+	var p *pem.Block
+	rest := bytes
+	for {
+		// decode a PEM block
+		p, rest = pem.Decode(rest)
+
+		// did we fail?
+		if p == nil {
+			break
+		}
+
+		// did we get a CSR?
+		if p.Type == "CERTIFICATE REQUEST" {
+			raw = p.Bytes
+		}
+	}
+
+	// no PEM-encoded CSR
+	// assume we were given a DER-encoded ASN.1 CSR
+	// (if this assumption is wrong, parsing these bytes will fail)
+	return x509.ParseCertificateRequest(raw)
+}
+
+func run(c *cli.Context) error {
 	conf, acc, client := setup(c)
 	if acc.Registration == nil {
 		reg, err := client.Register()
@@ -223,11 +279,34 @@ func run(c *cli.Context) {
 		handleTOS(c, client, acc)
 	}
 
-	if len(c.GlobalStringSlice("domains")) == 0 {
-		logger().Fatal("Please specify --domains or -d")
+	// we require either domains or csr, but not both
+	hasDomains := len(c.GlobalStringSlice("domains")) > 0
+	hasCsr := len(c.GlobalString("csr")) > 0
+	if hasDomains && hasCsr {
+		logger().Fatal("Please specify either --domains/-d or --csr/-c, but not both")
+	}
+	if !hasDomains && !hasCsr {
+		logger().Fatal("Please specify --domains/-d (or --csr/-c if you already have a CSR)")
 	}
 
-	cert, failures := client.ObtainCertificate(c.GlobalStringSlice("domains"), !c.Bool("no-bundle"), nil)
+	var cert acme.CertificateResource
+	var failures map[string]error
+
+	if hasDomains {
+		// obtain a certificate, generating a new private key
+		cert, failures = client.ObtainCertificate(c.GlobalStringSlice("domains"), !c.Bool("no-bundle"), nil, c.Bool("must-staple"))
+	} else {
+		// read the CSR
+		csr, err := readCSRFile(c.GlobalString("csr"))
+		if err != nil {
+			// we couldn't read the CSR
+			failures = map[string]error{"csr": err}
+		} else {
+			// obtain a certificate for this CSR
+			cert, failures = client.ObtainCertificateForCSR(*csr, !c.Bool("no-bundle"))
+		}
+	}
+
 	if len(failures) > 0 {
 		for k, v := range failures {
 			logger().Printf("[%s] Could not obtain certificates\n\t%s", k, v.Error())
@@ -245,9 +324,11 @@ func run(c *cli.Context) {
 	}
 
 	saveCertRes(cert, conf)
+
+	return nil
 }
 
-func revoke(c *cli.Context) {
+func revoke(c *cli.Context) error {
 
 	conf, _, client := setup(c)
 
@@ -269,9 +350,11 @@ func revoke(c *cli.Context) {
 			logger().Print("Certificate was revoked.")
 		}
 	}
+
+	return nil
 }
 
-func renew(c *cli.Context) {
+func renew(c *cli.Context) error {
 	conf, _, client := setup(c)
 
 	if len(c.GlobalStringSlice("domains")) <= 0 {
@@ -299,7 +382,7 @@ func renew(c *cli.Context) {
 		}
 
 		if int(expTime.Sub(time.Now()).Hours()/24.0) > c.Int("days") {
-			return
+			return nil
 		}
 	}
 
@@ -324,10 +407,12 @@ func renew(c *cli.Context) {
 
 	certRes.Certificate = certBytes
 
-	newCert, err := client.RenewCertificate(certRes, !c.Bool("no-bundle"))
+	newCert, err := client.RenewCertificate(certRes, !c.Bool("no-bundle"), c.Bool("must-staple"))
 	if err != nil {
 		logger().Fatalf("%s", err.Error())
 	}
 
 	saveCertRes(newCert, conf)
+
+	return nil
 }

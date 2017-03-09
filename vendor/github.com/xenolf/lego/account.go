@@ -64,6 +64,14 @@ func NewAccount(email string, conf *Configuration) *Account {
 	acc.key = privKey
 	acc.conf = conf
 
+	if acc.Registration == nil {
+		logger().Fatalf("Could not load account for %s. Registration is nil.", email)
+	}
+
+	if acc.conf == nil {
+		logger().Fatalf("Could not load account for %s. Configuration is nil.", email)
+	}
+
 	return &acc
 }
 
@@ -93,6 +101,9 @@ func (a *Account) Save() error {
 		return err
 	}
 
-	return ioutil.WriteFile(path.Join(a.conf.AccountPath(a.Email), "account.json"), jsonBytes, 0700)
-
+	return ioutil.WriteFile(
+		path.Join(a.conf.AccountPath(a.Email), "account.json"),
+		jsonBytes,
+		0600,
+	)
 }
