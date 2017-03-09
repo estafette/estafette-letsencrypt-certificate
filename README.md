@@ -1,6 +1,6 @@
 # estafette-letsencrypt-certificate
 
-This small Kubernetes application creates and renews Let's Encrypt SSL certificates in any secret with the correct annotation
+This small Kubernetes application creates and renews Let's Encrypt SSL certificates in any secret with the correct annotations
 
 [![License](https://img.shields.io/github/license/estafette/estafette-letsencrypt-certificate.svg)](https://github.com/estafette/estafette-letsencrypt-certificate/blob/master/LICENSE)
 
