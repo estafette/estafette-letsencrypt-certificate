@@ -333,6 +333,16 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			secret.Data["ssl.crt"] = certificate.Certificate
 			secret.Data["ssl.key"] = certificate.PrivateKey
 			secret.Data["ssl.pem"] = bytes.Join([][]byte{certificate.Certificate, certificate.PrivateKey}, []byte{})
+			if certificate.IssuerCertificate != nil {
+				secret.Data["ssl.issuer.crt"] = certificate.IssuerCertificate
+			}
+
+			jsonBytes, err := json.MarshalIndent(certificate, "", "\t")
+			if err != nil {
+				log.Printf("[%v] Secret %v.%v - Unable to marshal CertResource for domain %s\n\t%s", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, certificate.Domain, err.Error())
+				return err
+			}
+			secret.Data["ssl.json"] = jsonBytes
 
 			fmt.Printf("[%v] Secret %v.%v - Secret has %v data items after writing the certificates...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
 
