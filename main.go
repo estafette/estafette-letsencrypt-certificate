@@ -52,7 +52,7 @@ var (
 			Name: "estafette_letsencrypt_certificate_totals",
 			Help: "Number of generated certificates with LetsEncrypt.",
 		},
-		[]string{"namespace", "status"},
+		[]string{"namespace", "status", "initiator"},
 	)
 )
 
@@ -105,7 +105,7 @@ func main() {
 
 					if *event.Type == k8s.EventAdded || *event.Type == k8s.EventModified {
 						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", *event.Type))
-						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status}).Inc()
+						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher"}).Inc()
 						if err != nil {
 							continue
 						}
@@ -136,7 +136,7 @@ func main() {
 			for _, secret := range secrets.Items {
 
 				status, err := processSecret(client, secret, "poller")
-				certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status}).Inc()
+				certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller"}).Inc()
 				if err != nil {
 					continue
 				}
