@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/xenolf/lego/acme"
@@ -44,7 +45,21 @@ var (
 
 	// seed random number
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	// define prometheus counter
+	certificateTotals = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "estafette_letsencrypt_certificate_totals",
+			Help: "Number of generated certificates with LetsEncrypt.",
+		},
+		[]string{"namespace", "status"},
+	)
 )
+
+func init() {
+	// metrics have to be registered to be exposed
+	prometheus.MustRegister(certificateTotals)
+}
 
 func main() {
 
@@ -67,7 +82,6 @@ func main() {
 	// start prometheus
 	go func() {
 		fmt.Println("Serving Prometheus metrics at :9101/metrics...")
-		flag.Parse()
 		http.Handle("/metrics", promhttp.Handler())
 		log.Fatal(http.ListenAndServe(*addr, nil))
 	}()
@@ -90,13 +104,11 @@ func main() {
 					}
 
 					if *event.Type == k8s.EventAdded || *event.Type == k8s.EventModified {
-						//fmt.Printf("Secret %v (namespace %v) has event of type %v, processing it...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, *event.Type)
-						err := processSecret(client, secret, fmt.Sprintf("watcher:%v", *event.Type))
+						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", *event.Type))
+						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status}).Inc()
 						if err != nil {
 							continue
 						}
-					} else {
-						//fmt.Printf("Secret %v (namespace %v) has event of type %v, skipping it...\n", *secret.Metadata.Name, *secret.Metadata.Namespace, *event.Type)
 					}
 				}
 			}
@@ -123,7 +135,8 @@ func main() {
 		if secrets != nil && secrets.Items != nil {
 			for _, secret := range secrets.Items {
 
-				err := processSecret(client, secret, "poller")
+				status, err := processSecret(client, secret, "poller")
+				certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status}).Inc()
 				if err != nil {
 					continue
 				}
@@ -166,7 +179,9 @@ type Account struct {
 	Registration *acme.RegistrationResource `json:"registration"`
 }
 
-func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator string) error {
+func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator string) (status string, err error) {
+
+	status = "failed"
 
 	cfAPIKey := os.Getenv("CF_API_KEY")
 	cfAPIEmail := os.Getenv("CF_API_EMAIL")
@@ -222,7 +237,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			letsEncryptCertificateStateByteArray, err := json.Marshal(letsEncryptCertificateState)
 			if err != nil {
 				log.Println(err)
-				return err
+				return status, err
 			}
 			secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
 
@@ -230,7 +245,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			secret, err = kubeclient.CoreV1().UpdateSecret(context.Background(), secret)
 			if err != nil {
 				log.Println(err)
-				return err
+				return status, err
 			}
 
 			// load account.json
@@ -238,13 +253,13 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			fileBytes, err := ioutil.ReadFile("/account/account.json")
 			if err != nil {
 				log.Println(err)
-				return err
+				return status, err
 			}
 			var letsEncryptUser LetsEncryptUser
 			err = json.Unmarshal(fileBytes, &letsEncryptUser)
 			if err != nil {
 				log.Println(err)
-				return err
+				return status, err
 			}
 
 			// load private key
@@ -252,7 +267,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			privateKey, err := loadPrivateKey("/account/account.key")
 			if err != nil {
 				log.Println(err)
-				return err
+				return status, err
 			}
 			letsEncryptUser.key = privateKey
 
@@ -265,7 +280,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			client, err := acme.NewClient("https://acme-v01.api.letsencrypt.org/directory", letsEncryptUser, acme.RSA2048)
 			if err != nil {
 				log.Println(err)
-				return err
+				return status, err
 			}
 
 			// get dns challenge
@@ -274,7 +289,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			provider, err = cloudflare.NewDNSProviderCredentials(cfAPIEmail, cfAPIKey)
 			if err != nil {
 				log.Println(err)
-				return err
+				return status, err
 			}
 
 			// clean up acme challenge records in advance
@@ -306,7 +321,8 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 					log.Printf("[%s] Could not obtain certificates\n\t%s", k, v.Error())
 				}
 
-				return errors.New("Generating certificates has failed")
+				err = errors.New("Generating certificates has failed")
+				return status, err
 			}
 
 			// update the secret
@@ -319,7 +335,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			letsEncryptCertificateStateByteArray, err = json.Marshal(letsEncryptCertificateState)
 			if err != nil {
 				log.Println(err)
-				return err
+				return status, err
 			}
 			secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
 
@@ -340,7 +356,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			jsonBytes, err := json.MarshalIndent(certificate, "", "\t")
 			if err != nil {
 				log.Printf("[%v] Secret %v.%v - Unable to marshal CertResource for domain %s\n\t%s", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, certificate.Domain, err.Error())
-				return err
+				return status, err
 			}
 			secret.Data["ssl.json"] = jsonBytes
 
@@ -350,14 +366,18 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			secret, err = kubeclient.CoreV1().UpdateSecret(context.Background(), secret)
 			if err != nil {
 				log.Println(err)
-				return err
+				return status, err
 			}
+
+			status = "succeeded"
 
 			fmt.Printf("[%v] Secret %v.%v - Certificates have been stored in secret successfully...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 		}
 	}
 
-	return nil
+	status = "skipped"
+
+	return status, nil
 }
 
 func loadPrivateKey(file string) (crypto.PrivateKey, error) {
