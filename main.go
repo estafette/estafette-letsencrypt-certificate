@@ -307,7 +307,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			fmt.Printf("[%v] Secret %v.%v - Obtaining certificate...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 			var certificate acme.CertificateResource
 			var failures map[string]error
-			certificate, failures = client.ObtainCertificate(hostnames, true, nil, false)
+			certificate, failures = client.ObtainCertificate(hostnames, true, nil, true)
 
 			// clean up acme challenge records afterwards
 			for _, hostname := range hostnames {
