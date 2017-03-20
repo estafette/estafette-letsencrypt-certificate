@@ -372,6 +372,8 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			status = "succeeded"
 
 			fmt.Printf("[%v] Secret %v.%v - Certificates have been stored in secret successfully...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+
+			return status, nil
 		}
 	}
 
