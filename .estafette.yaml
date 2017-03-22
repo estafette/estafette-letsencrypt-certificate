@@ -1,0 +1,18 @@
+labels:
+  app: estafette-letsencrypt-certificate
+  team: estafette-team
+  language: golang
+
+pipelines:
+  build:
+    image: golang:1.8.0-alpine
+    workDir: /go/src/github.com/estafette/estafette-letsencrypt-certificate
+    commands:
+    - go test ./...
+    - CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ./publish/estafette-letsencrypt-certificate .
+
+  bake:
+    image: docker:17.03.0-ce
+    commands:
+    - cp Dockerfile ./publish
+    - docker build -t estafette-letsencrypt-certificate ./publish
