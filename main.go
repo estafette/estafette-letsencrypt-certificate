@@ -346,6 +346,7 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 
 			fmt.Printf("[%v] Secret %v.%v - Secret has %v data items before writing the certificates...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
 
+			// ssl keys
 			secret.Data["ssl.crt"] = certificate.Certificate
 			secret.Data["ssl.key"] = certificate.PrivateKey
 			secret.Data["ssl.pem"] = bytes.Join([][]byte{certificate.Certificate, certificate.PrivateKey}, []byte{})
@@ -360,6 +361,15 @@ func processSecret(kubeclient *k8s.Client, secret *apiv1.Secret, initiator strin
 			}
 			secret.Data["ssl.json"] = jsonBytes
 
+			// tls keys for ingress object
+			secret.Data["tls.crt"] = certificate.Certificate
+			secret.Data["tls.key"] = certificate.PrivateKey
+			secret.Data["tls.pem"] = bytes.Join([][]byte{certificate.Certificate, certificate.PrivateKey}, []byte{})
+			if certificate.IssuerCertificate != nil {
+				secret.Data["tls.issuer.crt"] = certificate.IssuerCertificate
+			}
+			secret.Data["tls.json"] = jsonBytes
+			
 			fmt.Printf("[%v] Secret %v.%v - Secret has %v data items after writing the certificates...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
 
 			// update secret, because the data and state annotation have changed
