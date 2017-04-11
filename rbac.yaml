@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRole
+metadata:
+  name: estafette-letsencrypt-certificate
+  labels:
+    app: estafette-letsencrypt-certificate
+rules:
+- apiGroups: [""] # "" indicates the core API group
+  resources:
+  - secrets
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: estafette-letsencrypt-certificate
+  labels:
+    app: estafette-letsencrypt-certificate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: estafette-letsencrypt-certificate
+subjects:
+- kind: ServiceAccount
+  name: estafette-letsencrypt-certificate
+  namespace: ${NAMESPACE}
