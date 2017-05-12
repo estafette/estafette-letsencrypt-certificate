@@ -252,6 +252,16 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 			return status, err
 		}
 
+		// error if any of the host names is longer than 64 bytes
+		hostnames := strings.Split(desiredState.Hostnames, ",")
+		for _, hostname := range hostnames {
+			byteCount := len([]byte(hostname))
+			if byteCount > 64 {
+				err = fmt.Errorf("Hostname %v is %v bytes long; the maximum length for CN is 64 bytes", hostname, byteCount)
+				return status, err
+			}
+		}
+
 		// load account.json
 		fmt.Printf("[%v] Secret %v.%v - Loading account.json...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 		fileBytes, err := ioutil.ReadFile("/account/account.json")
@@ -297,7 +307,6 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		}
 
 		// clean up acme challenge records in advance
-		hostnames := strings.Split(desiredState.Hostnames, ",")
 		for _, hostname := range hostnames {
 			fmt.Printf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
 			provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
