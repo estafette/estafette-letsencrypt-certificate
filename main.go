@@ -116,6 +116,7 @@ func main() {
 						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", *event.Type))
 						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
 						if err != nil {
+							log.Println(err)
 							continue
 						}
 					}
@@ -147,6 +148,7 @@ func main() {
 				status, err := processSecret(client, secret, "poller")
 				certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
 				if err != nil {
+					log.Println(err)
 					continue
 				}
 			}
