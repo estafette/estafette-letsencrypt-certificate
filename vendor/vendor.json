@@ -247,6 +247,26 @@
 			"revisionTime": "2017-02-16T22:32:56Z"
 		},
 		{
+			"checksumSHA1": "Je1yw5xu6QYIBk2qJRZw1p6/3wE=",
+			"path": "github.com/rs/zerolog",
+			"revision": "2ed2f2c974489526d10329dae76d0f175684109a",
+			"revisionTime": "2017-08-06T03:45:41Z"
+		},
+		{
+			"checksumSHA1": "VKcpzcAOV61yG2Vo1IUFs2v8LQ4=",
+			"path": "github.com/rs/zerolog/internal/json",
+			"revision": "2ed2f2c974489526d10329dae76d0f175684109a",
+			"revisionTime": "2017-08-06T03:45:41Z"
+		},
+		{
+			"checksumSHA1": "K8FG94sTTJSJJKmRsem1LuRwlGQ=",
+			"path": "github.com/rs/zerolog/log",
+			"revision": "2ed2f2c974489526d10329dae76d0f175684109a",
+			"revisionTime": "2017-08-06T03:45:41Z",
+			"version": "v1.2.2",
+			"versionExact": "v1.2.2"
+		},
+		{
 			"checksumSHA1": "h6dMtMCvLjmkDJo0BIucsrVWrYo=",
 			"path": "github.com/xenolf/lego/acme",
 			"revision": "0e2937900b224325f4476745a9b53aef246b7410",

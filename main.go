@@ -8,13 +8,15 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -70,45 +72,65 @@ func init() {
 
 func main() {
 
-	fmt.Printf("Starting estafette-letsencrypt-certificate (version=%v, branch=%v, revision=%v, buildDate=%v, goVersion=%v)\n", version, branch, revision, buildDate, goVersion)
+	// set some default fields added to all logs
+	log := zerolog.New(os.Stdout).With().
+		Timestamp().
+		Str("app", "estafette-letsencrypt-certificate").
+		Str("version", version).
+		Logger()
+
+	// log startup message
+	log.Info().
+		Str("branch", branch).
+		Str("revision", revision).
+		Str("buildDate", buildDate).
+		Str("goVersion", goVersion).
+		Msg("Starting estafette-letsencrypt-certificate...")
 
 	// create cloudflare api client
 	cfAPIKey := os.Getenv("CF_API_KEY")
 	if cfAPIKey == "" {
-		log.Fatal("CF_API_KEY is required. Please set CF_API_KEY environment variable to your Cloudflare API key.")
+		log.Fatal().Msg("CF_API_KEY is required. Please set CF_API_KEY environment variable to your Cloudflare API key.")
 	}
 	cfAPIEmail := os.Getenv("CF_API_EMAIL")
 	if cfAPIEmail == "" {
-		log.Fatal("CF_API_EMAIL is required. Please set CF_API_KEY environment variable to your Cloudflare API email.")
+		log.Fatal().Msg("CF_API_EMAIL is required. Please set CF_API_KEY environment variable to your Cloudflare API email.")
 	}
 
 	// create kubernetes api client
 	client, err := k8s.NewInClusterClient()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err)
 	}
 
 	// start prometheus
 	go func() {
-		fmt.Println("Serving Prometheus metrics at :9101/metrics...")
+		log.Info().
+			Str("port", *prometheusAddress).
+			Str("path", *prometheusMetricsPath).
+			Msg("Serving Prometheus metrics...")
+
 		http.Handle("/metrics", promhttp.Handler())
-		log.Fatal(http.ListenAndServe(*addr, nil))
+
+		if err := http.ListenAndServe(*addr, nil); err != nil {
+			log.Fatal().Err(err).Msg("Starting Prometheus listener failed")
+		}
 	}()
 
 	// watch secrets for all namespaces
 	go func() {
 		// loop indefinitely
 		for {
-			fmt.Println("Watching secrets for all namespaces...")
+			log.Info().Msg("Watching secrets for all namespaces...")
 			watcher, err := client.CoreV1().WatchSecrets(context.Background(), k8s.AllNamespaces)
 			if err != nil {
-				log.Println(err)
+				log.Error().Err(err)
 			} else {
 				// loop indefinitely, unless it errors
 				for {
 					event, secret, err := watcher.Next()
 					if err != nil {
-						log.Println(err)
+						log.Error().Err(err)
 						break
 					}
 
@@ -116,7 +138,7 @@ func main() {
 						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", *event.Type))
 						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
 						if err != nil {
-							log.Println(err)
+							log.Error().Err(err)
 							continue
 						}
 					}
@@ -125,7 +147,7 @@ func main() {
 
 			// sleep random time between 22 and 37 seconds
 			sleepTime := applyJitter(30)
-			fmt.Printf("Sleeping for %v seconds...\n", sleepTime)
+			log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
 			time.Sleep(time.Duration(sleepTime) * time.Second)
 		}
 	}()
@@ -134,12 +156,12 @@ func main() {
 	for {
 
 		// get secrets for all namespaces
-		fmt.Println("Listing secrets for all namespaces...")
+		log.Info().Msg("Listing secrets for all namespaces...")
 		secrets, err := client.CoreV1().ListSecrets(context.Background(), k8s.AllNamespaces)
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err)
 		}
-		fmt.Printf("Cluster has %v secrets\n", len(secrets.Items))
+		log.Info().Msgf("Cluster has %v secrets", len(secrets.Items))
 
 		// loop all secrets
 		if secrets != nil && secrets.Items != nil {
@@ -148,7 +170,7 @@ func main() {
 				status, err := processSecret(client, secret, "poller")
 				certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
 				if err != nil {
-					log.Println(err)
+					log.Error().Err(err)
 					continue
 				}
 			}
@@ -156,7 +178,7 @@ func main() {
 
 		// sleep random time around 900 seconds
 		sleepTime := applyJitter(900)
-		fmt.Printf("Sleeping for %v seconds...\n", sleepTime)
+		log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
 		time.Sleep(time.Duration(sleepTime) * time.Second)
 	}
 }
@@ -234,7 +256,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 	// check if letsencrypt is enabled for this secret, hostnames are set and either the hostnames have changed or the certificate is older than 60 days and the last attempt was more than 15 minutes ago
 	if desiredState.Enabled == "true" && len(desiredState.Hostnames) > 0 && time.Since(lastAttempt).Minutes() > 15 && (desiredState.Hostnames != currentState.Hostnames || time.Since(lastRenewed).Hours() > float64(60*24)) {
 
-		fmt.Printf("[%v] Secret %v.%v - Certificates are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, desiredState.Hostnames)
+		log.Info().Msgf("[%v] Secret %v.%v - Certificates are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, desiredState.Hostnames)
 
 		// 'lock' the secret for 15 minutes by storing the last attempt timestamp to prevent hitting the rate limit if the Let's Encrypt call fails and to prevent the watcher and the fallback polling to operate on the secret at the same time
 		currentState.LastAttempt = time.Now().Format(time.RFC3339)
@@ -242,7 +264,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		// serialize state and store it in the annotation
 		letsEncryptCertificateStateByteArray, err := json.Marshal(currentState)
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err)
 			return status, err
 		}
 		secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
@@ -250,7 +272,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		// update secret, with last attempt; this will fire an event for the watcher, but this shouldn't lead to any action because storing the last attempt locks the secret for 15 minutes
 		secret, err = kubeClient.CoreV1().UpdateSecret(context.Background(), secret)
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err)
 			return status, err
 		}
 
@@ -265,52 +287,52 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		}
 
 		// load account.json
-		fmt.Printf("[%v] Secret %v.%v - Loading account.json...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Loading account.json...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 		fileBytes, err := ioutil.ReadFile("/account/account.json")
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err)
 			return status, err
 		}
 		var letsEncryptUser LetsEncryptUser
 		err = json.Unmarshal(fileBytes, &letsEncryptUser)
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err)
 			return status, err
 		}
 
 		// load private key
-		fmt.Printf("[%v] Secret %v.%v - Loading account.key...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Loading account.key...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 		privateKey, err := loadPrivateKey("/account/account.key")
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err)
 			return status, err
 		}
 		letsEncryptUser.key = privateKey
 
 		// set dns timeout
-		fmt.Printf("[%v] Secret %v.%v - Setting acme dns timeout to 600 seconds...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Setting acme dns timeout to 600 seconds...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 		acme.DNSTimeout = time.Duration(600) * time.Second
 
 		// create letsencrypt acme client
-		fmt.Printf("[%v] Secret %v.%v - Creating acme client...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Creating acme client...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 		acmeClient, err := acme.NewClient("https://acme-v01.api.letsencrypt.org/directory", letsEncryptUser, acme.RSA2048)
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err)
 			return status, err
 		}
 
 		// get dns challenge
-		fmt.Printf("[%v] Secret %v.%v - Creating cloudflare provider...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Creating cloudflare provider...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 		var provider acme.ChallengeProvider
 		provider, err = cloudflare.NewDNSProviderCredentials(cfAPIEmail, cfAPIKey)
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err)
 			return status, err
 		}
 
 		// clean up acme challenge records in advance
 		for _, hostname := range hostnames {
-			fmt.Printf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+			log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
 			provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
 		}
 
@@ -319,21 +341,21 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		acmeClient.ExcludeChallenges([]acme.Challenge{acme.HTTP01, acme.TLSSNI01})
 
 		// get certificate
-		fmt.Printf("[%v] Secret %v.%v - Obtaining certificate...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Obtaining certificate...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 		var certificate acme.CertificateResource
 		var failures map[string]error
 		certificate, failures = acmeClient.ObtainCertificate(hostnames, true, nil, true)
 
 		// clean up acme challenge records afterwards
 		for _, hostname := range hostnames {
-			fmt.Printf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+			log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
 			provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
 		}
 
 		// if obtaining secret failed exit and retry after more than 15 minutes
 		if len(failures) > 0 {
 			for k, v := range failures {
-				log.Printf("[%s] Could not obtain certificates\n\t%s", k, v.Error())
+				log.Error().Msgf("[%s] Could not obtain certificates\n\t%s", k, v.Error())
 			}
 
 			err = errors.New("Generating certificates has failed")
@@ -344,12 +366,12 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		currentState = desiredState
 		currentState.LastRenewed = time.Now().Format(time.RFC3339)
 
-		fmt.Printf("[%v] Secret %v.%v - Updating secret because new certificates have been obtained...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Updating secret because new certificates have been obtained...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 
 		// serialize state and store it in the annotation
 		letsEncryptCertificateStateByteArray, err = json.Marshal(currentState)
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err)
 			return status, err
 		}
 		secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
@@ -359,7 +381,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 			secret.Data = make(map[string][]byte)
 		}
 
-		fmt.Printf("[%v] Secret %v.%v - Secret has %v data items before writing the certificates...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
+		log.Info().Msgf("[%v] Secret %v.%v - Secret has %v data items before writing the certificates...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
 
 		// ssl keys
 		secret.Data["ssl.crt"] = certificate.Certificate
@@ -371,7 +393,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 
 		jsonBytes, err := json.MarshalIndent(certificate, "", "\t")
 		if err != nil {
-			log.Printf("[%v] Secret %v.%v - Unable to marshal CertResource for domain %s\n\t%s", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, certificate.Domain, err.Error())
+			log.Error().Msgf("[%v] Secret %v.%v - Unable to marshal CertResource for domain %s\n\t%s", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, certificate.Domain, err.Error())
 			return status, err
 		}
 		secret.Data["ssl.json"] = jsonBytes
@@ -385,18 +407,18 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		}
 		secret.Data["tls.json"] = jsonBytes
 
-		fmt.Printf("[%v] Secret %v.%v - Secret has %v data items after writing the certificates...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
+		log.Info().Msgf("[%v] Secret %v.%v - Secret has %v data items after writing the certificates...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
 
 		// update secret, because the data and state annotation have changed
 		secret, err = kubeClient.CoreV1().UpdateSecret(context.Background(), secret)
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err)
 			return status, err
 		}
 
 		status = "succeeded"
 
-		fmt.Printf("[%v] Secret %v.%v - Certificates have been stored in secret successfully...\n", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Certificates have been stored in secret successfully...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 
 		return status, nil
 	}
