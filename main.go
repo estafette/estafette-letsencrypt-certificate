@@ -106,8 +106,7 @@ func main() {
 	// start prometheus
 	go func() {
 		log.Info().
-			Str("port", *prometheusAddress).
-			Str("path", *prometheusMetricsPath).
+			Str("port", *addr).
 			Msg("Serving Prometheus metrics...")
 
 		http.Handle("/metrics", promhttp.Handler())
