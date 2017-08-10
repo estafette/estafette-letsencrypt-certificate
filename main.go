@@ -75,6 +75,9 @@ func main() {
 	// parse command line parameters
 	flag.Parse()
 
+	// log as severity for stackdriver logging to recognize the level
+	zerolog.LevelFieldName = "severity"
+
 	// set some default fields added to all logs
 	log := zerolog.New(os.Stdout).With().
 		Timestamp().
@@ -108,7 +111,7 @@ func main() {
 
 	// start prometheus
 	go func() {
-		log.Info().
+		log.Debug().
 			Str("port", *addr).
 			Msg("Serving Prometheus metrics...")
 
