@@ -129,6 +129,7 @@ func main() {
 	nRoutineToWait := 2
 	gracefulShutdown := make(chan os.Signal)
 	shutdown := make(chan bool, nRoutineToWait)
+	stopWatcher := make(chan bool)
 
 	signal.Notify(gracefulShutdown, syscall.SIGTERM, syscall.SIGINT)
 
@@ -145,6 +146,12 @@ func main() {
 			if err != nil {
 				log.Error().Err(err)
 			} else {
+				// stop watcher if shutdown is requested
+				go func(shutdown chan bool, watcher *k8s.CoreV1SecretWatcher) {
+					<-stopWatcher
+					watcher.Close()
+				}(shutdown, watcher)
+
 				// loop indefinitely, unless it errors
 				for {
 					// run process until shutdown is requested via SIGTERM and SIGINT
@@ -221,7 +228,10 @@ func main() {
 	log.Info().
 		Msgf("Received signal %v", signalReceived)
 
-		// wait for all go routines to finish
+	log.Info().Msg("Stopping watcher...")
+	stopWatcher <- true
+
+	// wait for all go routines to finish
 	for i := 0; i < nRoutineToWait; i++ {
 		log.Info().
 			Msgf("Sending shutdown and waiting on %d goroutine(s) to stop...", i)
