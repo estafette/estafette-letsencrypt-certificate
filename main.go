@@ -13,6 +13,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -122,8 +123,19 @@ func main() {
 		}
 	}()
 
+	// define channels used to gracefully shutdown the application
+	nRoutineToWait := 2
+	gracefulShutdown := make(chan os.Signal)
+	shutdown := make(chan bool, nRoutineToWait)
+
+	signal.Notify(gracefulShutdown, syscall.SIGTERM, syscall.SIGINT)
+
+	waitGroup := &sync.WaitGroup{}
+	waitGroup.Add(nRoutineToWait)
+
 	// watch secrets for all namespaces
-	go func() {
+	go func(shutdown chan bool, waitGroup *sync.WaitGroup) {
+		defer waitGroup.Done()
 		// loop indefinitely
 		for {
 			log.Info().Msg("Watching secrets for all namespaces...")
@@ -140,6 +152,13 @@ func main() {
 					}
 
 					if *event.Type == k8s.EventAdded || *event.Type == k8s.EventModified {
+						// run process until shutdown is requested via SIGTERM and SIGINT
+						select {
+						case _ = <-shutdown:
+							return
+						default:
+						}
+
 						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", *event.Type))
 						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
 						if err != nil {
@@ -155,37 +174,61 @@ func main() {
 			log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
 			time.Sleep(time.Duration(sleepTime) * time.Second)
 		}
-	}()
+	}(shutdown, waitGroup)
 
-	// loop indefinitely
-	for {
+	go func(shutdown chan bool, waitGroup *sync.WaitGroup) {
+		defer waitGroup.Done()
+		// loop indefinitely
+		for {
 
-		// get secrets for all namespaces
-		log.Info().Msg("Listing secrets for all namespaces...")
-		secrets, err := client.CoreV1().ListSecrets(context.Background(), k8s.AllNamespaces)
-		if err != nil {
-			log.Error().Err(err)
-		}
-		log.Info().Msgf("Cluster has %v secrets", len(secrets.Items))
+			// get secrets for all namespaces
+			log.Info().Msg("Listing secrets for all namespaces...")
+			secrets, err := client.CoreV1().ListSecrets(context.Background(), k8s.AllNamespaces)
+			if err != nil {
+				log.Error().Err(err)
+			}
+			log.Info().Msgf("Cluster has %v secrets", len(secrets.Items))
 
-		// loop all secrets
-		if secrets != nil && secrets.Items != nil {
-			for _, secret := range secrets.Items {
+			// loop all secrets
+			if secrets != nil && secrets.Items != nil {
+				for _, secret := range secrets.Items {
+					// run process until shutdown is requested via SIGTERM and SIGINT
+					select {
+					case _ = <-shutdown:
+						return
+					default:
+					}
 
-				status, err := processSecret(client, secret, "poller")
-				certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
-				if err != nil {
-					log.Error().Err(err)
-					continue
+					status, err := processSecret(client, secret, "poller")
+					certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
+					if err != nil {
+						log.Error().Err(err)
+						continue
+					}
 				}
 			}
-		}
 
-		// sleep random time around 900 seconds
-		sleepTime := applyJitter(900)
-		log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
-		time.Sleep(time.Duration(sleepTime) * time.Second)
+			// sleep random time around 900 seconds
+			sleepTime := applyJitter(900)
+			log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
+			time.Sleep(time.Duration(sleepTime) * time.Second)
+		}
+	}(shutdown, waitGroup)
+
+	signalReceived := <-gracefulShutdown
+	Logger.Info().
+		Msgf("Received signal %v", signalReceived)
+
+		// wait for all go routines to finish
+	for i := 0; i < nRoutineToWait; i++ {
+		Logger.Info().
+			Msgf("Sending shutdown and waiting on %d goroutine(s) to stop...", i)
+		shutdown <- true
 	}
+
+	waitGroup.Wait()
+
+	Logger.Info().Msg("Shutting down...")
 }
 
 func applyJitter(input int) (output int) {
