@@ -52,6 +52,7 @@ spec:
         prometheus.io/port: "9101"
     spec:
       serviceAccount: ${APP_NAME}
+      terminationGracePeriodSeconds: 120
       containers:
       - name: ${APP_NAME}
         image: estafette/estafette-letsencrypt-certificate:${GO_PIPELINE_LABEL}
