@@ -145,6 +145,13 @@ func main() {
 			} else {
 				// loop indefinitely, unless it errors
 				for {
+					// run process until shutdown is requested via SIGTERM and SIGINT
+					select {
+					case _ = <-shutdown:
+						return
+					default:
+					}
+
 					event, secret, err := watcher.Next()
 					if err != nil {
 						log.Error().Err(err)
@@ -152,13 +159,6 @@ func main() {
 					}
 
 					if *event.Type == k8s.EventAdded || *event.Type == k8s.EventModified {
-						// run process until shutdown is requested via SIGTERM and SIGINT
-						select {
-						case _ = <-shutdown:
-							return
-						default:
-						}
-
 						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", *event.Type))
 						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
 						if err != nil {
