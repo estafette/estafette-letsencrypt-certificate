@@ -10,7 +10,8 @@ In order to create and renew certificates automatically every 60 days this appli
 
 ## Usage
 
-First deploy this application to your Kubernetes cluster using the following manifest.
+As a Kubernetes administrator, you first need to deploy the rbac.yaml file which set role and permissions.
+Then deploy the application to Kubernetes cluster using the manifest below.
 
 ```yaml
 apiVersion: v1
@@ -29,6 +30,14 @@ type: Opaque
 data:
   account.json: "****"
   account.key: "****"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: estafette-letsencrypt-certificate
+  namespace: estafette
+  labels:
+    app: estafette-letsencrypt-certificate
 ---
 apiVersion: extensions/v1beta1
 kind: Deployment
@@ -49,6 +58,8 @@ spec:
       labels:
         app: estafette-letsencrypt-certificate
     spec:
+      serviceAccount: estafette-letsencrypt-certificate
+      terminationGracePeriodSeconds: 120
       containers:
       - name: estafette-letsencrypt-certificate
         image: estafette/estafette-letsencrypt-certificate:latest
