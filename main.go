@@ -218,19 +218,19 @@ func main() {
 	}(shutdown, waitGroup)
 
 	signalReceived := <-gracefulShutdown
-	Logger.Info().
+	log.Info().
 		Msgf("Received signal %v", signalReceived)
 
 		// wait for all go routines to finish
 	for i := 0; i < nRoutineToWait; i++ {
-		Logger.Info().
+		log.Info().
 			Msgf("Sending shutdown and waiting on %d goroutine(s) to stop...", i)
 		shutdown <- true
 	}
 
 	waitGroup.Wait()
 
-	Logger.Info().Msg("Shutting down...")
+	log.Info().Msg("Shutting down...")
 }
 
 func applyJitter(input int) (output int) {
