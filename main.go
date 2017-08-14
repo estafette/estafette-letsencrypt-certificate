@@ -125,20 +125,15 @@ func main() {
 		}
 	}()
 
-	// define channels used to gracefully shutdown the application
-	nRoutineToWait := 2
+	// define channel used to gracefully shutdown the application
 	gracefulShutdown := make(chan os.Signal)
-	shutdown := make(chan bool, nRoutineToWait)
-	stopWatcher := make(chan bool)
 
 	signal.Notify(gracefulShutdown, syscall.SIGTERM, syscall.SIGINT)
 
 	waitGroup := &sync.WaitGroup{}
-	waitGroup.Add(nRoutineToWait)
 
 	// watch secrets for all namespaces
-	go func(shutdown chan bool, waitGroup *sync.WaitGroup) {
-		defer waitGroup.Done()
+	go func(waitGroup *sync.WaitGroup) {
 		// loop indefinitely
 		for {
 			log.Info().Msg("Watching secrets for all namespaces...")
@@ -146,21 +141,8 @@ func main() {
 			if err != nil {
 				log.Error().Err(err)
 			} else {
-				// stop watcher if shutdown is requested
-				go func(shutdown chan bool, watcher *k8s.CoreV1SecretWatcher) {
-					<-stopWatcher
-					watcher.Close()
-				}(shutdown, watcher)
-
 				// loop indefinitely, unless it errors
 				for {
-					// run process until shutdown is requested via SIGTERM and SIGINT
-					select {
-					case _ = <-shutdown:
-						return
-					default:
-					}
-
 					event, secret, err := watcher.Next()
 					if err != nil {
 						log.Error().Err(err)
@@ -168,8 +150,11 @@ func main() {
 					}
 
 					if *event.Type == k8s.EventAdded || *event.Type == k8s.EventModified {
+						waitGroup.Add(1)
 						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", *event.Type))
 						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
+						waitGroup.Done()
+
 						if err != nil {
 							log.Error().Err(err)
 							continue
@@ -183,10 +168,9 @@ func main() {
 			log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
 			time.Sleep(time.Duration(sleepTime) * time.Second)
 		}
-	}(shutdown, waitGroup)
+	}(waitGroup)
 
-	go func(shutdown chan bool, waitGroup *sync.WaitGroup) {
-		defer waitGroup.Done()
+	go func(waitGroup *sync.WaitGroup) {
 		// loop indefinitely
 		for {
 
@@ -201,15 +185,11 @@ func main() {
 			// loop all secrets
 			if secrets != nil && secrets.Items != nil {
 				for _, secret := range secrets.Items {
-					// run process until shutdown is requested via SIGTERM and SIGINT
-					select {
-					case _ = <-shutdown:
-						return
-					default:
-					}
-
+					waitGroup.Add(1)
 					status, err := processSecret(client, secret, "poller")
 					certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
+					waitGroup.Done()
+
 					if err != nil {
 						log.Error().Err(err)
 						continue
@@ -222,21 +202,11 @@ func main() {
 			log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
 			time.Sleep(time.Duration(sleepTime) * time.Second)
 		}
-	}(shutdown, waitGroup)
+	}(waitGroup)
 
 	signalReceived := <-gracefulShutdown
 	log.Info().
-		Msgf("Received signal %v", signalReceived)
-
-	log.Info().Msg("Stopping watcher...")
-	stopWatcher <- true
-
-	// wait for all go routines to finish
-	for i := 0; i < nRoutineToWait; i++ {
-		log.Info().
-			Msgf("Sending shutdown and waiting on %d goroutine(s) to stop...", i)
-		shutdown <- true
-	}
+		Msgf("Received signal %v. Waiting on running tasks to finish...", signalReceived)
 
 	waitGroup.Wait()
 
