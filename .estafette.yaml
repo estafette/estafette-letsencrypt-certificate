@@ -29,8 +29,11 @@ pipelines:
 
   push-to-docker-hub:
     image: docker:17.06.1-ce
+    env:
+      DOCKER_HUB_USERNAME: estafette.secret(r74nrQqDg4PsTcFs.Z4rYdNcCsLUffUGEM9nMXZzBvHo5NH4LBA==)
+      DOCKER_HUB_PASSWORD: estafette.secret(9a1Hi27C6D_7T92U.RkTR8dK6RISOiLH9BX7kindCGBgAXhpOpCFetPfmh8bk_Tog)
     commands:
-    - docker login --username=${ESTAFETTE_DOCKER_HUB_USERNAME} --password="${ESTAFETTE_DOCKER_HUB_PASSWORD}"
+    - docker login --username=${DOCKER_HUB_USERNAME} --password="${DOCKER_HUB_PASSWORD}"
     - docker push estafette/${ESTAFETTE_LABEL_APP}:${ESTAFETTE_BUILD_VERSION}
     when:
       status == 'succeeded' &&
@@ -44,9 +47,10 @@ pipelines:
 
   slack-notify:
     image: extensions/slack-build-status:dev
+    env:
+      ESTAFETTE_SLACK_WEBHOOK: estafette.secret(pOJgEIdrzGwzat2P.VnYxtfCP_a4mu-PhdJKT9Zy1NK7cLTIfXekbGICOkPRKta8VlhJjG6b7lL0XAoilHpZbKQkzMlmdKsgN_PAKwlRrhzjj2M1Ca6AlcrJaIsDvVAJCVJmAd5N-3r-G)
     name: ${ESTAFETTE_LABEL_APP}
     channels:
     - '#build-status'
     when:
-      status == 'failed' &&
-      server == 'gocd'
+      status == 'failed'
