@@ -368,7 +368,10 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		// clean up acme challenge records in advance
 		for _, hostname := range hostnames {
 			log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
-			provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
+			err = provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
+			if err != nil {
+				log.Error().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+			}
 		}
 
 		// set challenge and provider
@@ -384,7 +387,10 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		// clean up acme challenge records afterwards
 		for _, hostname := range hostnames {
 			log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
-			provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
+			err = provider.CleanUp("_acme-challenge."+hostname, "", "123d==")
+			if err != nil {
+				log.Error().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+			}
 		}
 
 		// if obtaining secret failed exit and retry after more than 15 minutes
