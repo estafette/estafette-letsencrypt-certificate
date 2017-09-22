@@ -211,7 +211,7 @@ func main() {
 
 	signalReceived := <-gracefulShutdown
 	log.Info().
-		Msgf("Received signal %v. Waiting on running tasks to finish...", signalReceived)
+		Msgf("Received signal %v. Waiting for running tasks to finish...", signalReceived)
 
 	waitGroup.Wait()
 
