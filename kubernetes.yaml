@@ -53,6 +53,16 @@ spec:
     spec:
       serviceAccount: ${APP_NAME}
       terminationGracePeriodSeconds: 120
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 10
+            preference:
+              matchExpressions:
+              - key: cloud.google.com/gke-preemptible
+                operator: In
+                values:
+                - "true"
       containers:
       - name: ${APP_NAME}
         image: estafette/estafette-letsencrypt-certificate:${GO_PIPELINE_LABEL}
