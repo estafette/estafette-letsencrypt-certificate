@@ -273,10 +273,12 @@
 			"revisionTime": "2017-03-17T18:58:44Z"
 		},
 		{
-			"checksumSHA1": "QFJPCZZmC3nZisuA5aKVjheJglk=",
+			"checksumSHA1": "S/affEYoJ5ycQ9spxeOmLQvtECU=",
 			"path": "github.com/xenolf/lego/providers/dns/cloudflare",
-			"revision": "0e2937900b224325f4476745a9b53aef246b7410",
-			"revisionTime": "2017-03-17T18:58:44Z"
+			"revision": "67c86d860a797ce2483f50d9174d4ed24984bef2",
+			"revisionTime": "2017-09-26T14:13:47Z",
+			"version": "v0.4.1",
+			"versionExact": "v0.4.1"
 		},
 		{
 			"checksumSHA1": "UlBPMaKC4dO/9ge7wJfDtptVoVo=",
