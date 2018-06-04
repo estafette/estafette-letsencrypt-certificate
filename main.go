@@ -376,13 +376,13 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 
 		// set challenge and provider
 		acmeClient.SetChallengeProvider(acme.DNS01, provider)
-		acmeClient.ExcludeChallenges([]acme.Challenge{acme.HTTP01, acme.TLSSNI01})
+		acmeClient.ExcludeChallenges([]acme.Challenge{acme.HTTP01})
 
 		// get certificate
 		log.Info().Msgf("[%v] Secret %v.%v - Obtaining certificate...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
-		var certificate acme.CertificateResource
-		var failures map[string]error
-		certificate, failures = acmeClient.ObtainCertificate(hostnames, true, nil, true)
+		var certificate *acme.CertificateResource
+		var failure error
+		certificate, failure = acmeClient.ObtainCertificate(hostnames, true, nil, true)
 
 		// clean up acme challenge records afterwards
 		for _, hostname := range hostnames {
@@ -394,11 +394,8 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		}
 
 		// if obtaining secret failed exit and retry after more than 15 minutes
-		if len(failures) > 0 {
-			for k, v := range failures {
-				log.Error().Msgf("[%s] Could not obtain certificates\n\t%s", k, v.Error())
-			}
-
+		if failure != nil {
+			log.Error().Msgf("Could not obtain certificates\n\t%s", failure.Error())
 			err = errors.New("Generating certificates has failed")
 			return status, err
 		}

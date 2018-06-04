@@ -267,18 +267,38 @@
 			"versionExact": "v1.2.2"
 		},
 		{
-			"checksumSHA1": "h6dMtMCvLjmkDJo0BIucsrVWrYo=",
+			"checksumSHA1": "b9lHpdbCGQEBcqcNlTJyOFjnDhg=",
 			"path": "github.com/xenolf/lego/acme",
-			"revision": "0e2937900b224325f4476745a9b53aef246b7410",
-			"revisionTime": "2017-03-17T18:58:44Z"
+			"revision": "27e0f97c9df37cad8c4ba0ef1d133fa57afb7469",
+			"revisionTime": "2018-05-31T17:39:33Z",
+			"version": "v1.0.1",
+			"versionExact": "v1.0.1"
 		},
 		{
-			"checksumSHA1": "S/affEYoJ5ycQ9spxeOmLQvtECU=",
+			"checksumSHA1": "ZwLawktDc3/cbx6toztnrDty/Vw=",
+			"path": "github.com/xenolf/lego/log",
+			"revision": "7fedfd1388f016c7ca7ed92a7f2024d06a7e20d8",
+			"revisionTime": "2018-06-03T18:23:01Z"
+		},
+		{
+			"checksumSHA1": "JaJ13msyKLYittsAgM+A1G6lL+c=",
 			"path": "github.com/xenolf/lego/providers/dns/cloudflare",
-			"revision": "67c86d860a797ce2483f50d9174d4ed24984bef2",
-			"revisionTime": "2017-09-26T14:13:47Z",
-			"version": "v0.4.1",
-			"versionExact": "v0.4.1"
+			"revision": "27e0f97c9df37cad8c4ba0ef1d133fa57afb7469",
+			"revisionTime": "2018-05-31T17:39:33Z",
+			"version": "v1.0.1",
+			"versionExact": "v1.0.1"
+		},
+		{
+			"checksumSHA1": "2LpxYGSf068307b7bhAuVjvzLLc=",
+			"path": "golang.org/x/crypto/ed25519",
+			"revision": "df8d4716b3472e4a531c33cedbe537dae921a1a9",
+			"revisionTime": "2018-04-26T19:26:21Z"
+		},
+		{
+			"checksumSHA1": "0JTAFXPkankmWcZGQJGScLDiaN8=",
+			"path": "golang.org/x/crypto/ed25519/internal/edwards25519",
+			"revision": "df8d4716b3472e4a531c33cedbe537dae921a1a9",
+			"revisionTime": "2018-04-26T19:26:21Z"
 		},
 		{
 			"checksumSHA1": "UlBPMaKC4dO/9ge7wJfDtptVoVo=",
@@ -351,6 +371,24 @@
 			"path": "gopkg.in/square/go-jose.v1/json",
 			"revision": "aa2e30fdd1fe9dd3394119af66451ae790d50e0d",
 			"revisionTime": "2016-09-23T00:08:11Z"
+		},
+		{
+			"checksumSHA1": "hkuqebBTHHFCzuZ88LmWUhAkSCI=",
+			"path": "gopkg.in/square/go-jose.v2",
+			"revision": "76dd09796242edb5b897103a75df2645c028c960",
+			"revisionTime": "2018-03-29T00:24:23Z"
+		},
+		{
+			"checksumSHA1": "Ho5sr2GbiR8S35IRni7vC54d5Js=",
+			"path": "gopkg.in/square/go-jose.v2/cipher",
+			"revision": "76dd09796242edb5b897103a75df2645c028c960",
+			"revisionTime": "2018-03-29T00:24:23Z"
+		},
+		{
+			"checksumSHA1": "JFun0lWY9eqd80Js2iWsehu1gc4=",
+			"path": "gopkg.in/square/go-jose.v2/json",
+			"revision": "76dd09796242edb5b897103a75df2645c028c960",
+			"revisionTime": "2018-03-29T00:24:23Z"
 		}
 	],
 	"rootPath": "github.com/estafette/estafette-letsencrypt-certificate"
