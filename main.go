@@ -328,6 +328,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 			log.Error().Err(err)
 			return status, err
 		}
+
 		var letsEncryptUser LetsEncryptUser
 		err = json.Unmarshal(fileBytes, &letsEncryptUser)
 		if err != nil {
@@ -350,7 +351,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 
 		// create letsencrypt acme client
 		log.Info().Msgf("[%v] Secret %v.%v - Creating acme client...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
-		acmeClient, err := acme.NewClient("https://acme-v01.api.letsencrypt.org/directory", letsEncryptUser, acme.RSA2048)
+		acmeClient, err := acme.NewClient("https://acme-v02.api.letsencrypt.org/directory", letsEncryptUser, acme.RSA2048)
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
