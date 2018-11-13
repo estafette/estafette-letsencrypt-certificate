@@ -17,14 +17,17 @@ version:
 
 stages:
   build:
-    image: golang:1.10.2-alpine3.7
+    image: golang:1.11.2-alpine3.8
     workDir: /go/src/github.com/estafette/${ESTAFETTE_LABEL_APP}
+    env:
+      CGO_ENABLED: 0
+      GOOS: linux
     commands:
     - go test `go list ./... | grep -v /vendor/`
     - CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags "-X main.version=${ESTAFETTE_BUILD_VERSION} -X main.revision=${ESTAFETTE_GIT_REVISION} -X main.branch=${ESTAFETTE_GIT_BRANCH} -X main.buildDate=${ESTAFETTE_BUILD_DATETIME}" -o ./publish/${ESTAFETTE_LABEL_APP} .
 
   bake:
-    image: extensions/docker
+    image: extensions/docker:dev
     action: build
     repositories:
     - estafette
@@ -33,21 +36,20 @@ stages:
     - /etc/ssl/certs/ca-certificates.crt
 
   push-to-docker-hub:
-    image: extensions/docker
+    image: extensions/docker:dev
     action: push
     repositories:
     - estafette
-    tags:
-    - latest
     when:
       status == 'succeeded' &&
+      branch == 'master' &&
       server == 'gocd'
 
   slack-notify:
     image: extensions/slack-build-status:dev
-    webhook: estafette.secret(pOJgEIdrzGwzat2P.VnYxtfCP_a4mu-PhdJKT9Zy1NK7cLTIfXekbGICOkPRKta8VlhJjG6b7lL0XAoilHpZbKQkzMlmdKsgN_PAKwlRrhzjj2M1Ca6AlcrJaIsDvVAJCVJmAd5N-3r-G)
-    name: ${ESTAFETTE_LABEL_APP}
+    workspace: estafette
     channels:
     - '#build-status'
     when:
+      status == 'succeeded' ||
       status == 'failed'
