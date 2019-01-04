@@ -377,7 +377,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 
 		// set challenge and provider
 		acmeClient.SetChallengeProvider(acme.DNS01, provider)
-		acmeClient.ExcludeChallenges([]acme.Challenge{acme.HTTP01})
+		acmeClient.ExcludeChallenges([]acme.Challenge{acme.HTTP01, acme.TLSALPN01})
 
 		// get certificate
 		log.Info().Msgf("[%v] Secret %v.%v - Obtaining certificate...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
