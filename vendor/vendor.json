@@ -9,6 +9,12 @@
 			"revisionTime": "2016-08-04T10:47:26Z"
 		},
 		{
+			"checksumSHA1": "zt/4Muwjbyo63+F9JrSRsB4a++M=",
+			"path": "github.com/cloudflare/cloudflare-go",
+			"revision": "0c85496d873009e53e64d391ade643e7ac02e0d4",
+			"revisionTime": "2019-01-02T21:58:09Z"
+		},
+		{
 			"checksumSHA1": "4LWrIo127VPrZQB21+dWmqIQ4js=",
 			"path": "github.com/ericchiang/k8s",
 			"revision": "9fe8b1e214cbb4bbcca2384470f44b61cc8f1ecb",
@@ -195,6 +201,12 @@
 			"revisionTime": "2017-03-21T07:03:31Z"
 		},
 		{
+			"checksumSHA1": "Uy1A2Mv1zW4yURQdwvNpULvD7To=",
+			"path": "github.com/pkg/errors",
+			"revision": "ba968bfe8b2f7e042a574c888954fccecfa385b4",
+			"revisionTime": "2019-01-03T06:52:24Z"
+		},
+		{
 			"checksumSHA1": "YZvQ/pFowcTMs4ldf0B7vPG/hKU=",
 			"path": "github.com/prometheus/client_golang/prometheus",
 			"revision": "c5b7fccd204277076155f10851dad72b76a49317",
@@ -267,26 +279,32 @@
 			"versionExact": "v1.2.2"
 		},
 		{
-			"checksumSHA1": "b9lHpdbCGQEBcqcNlTJyOFjnDhg=",
+			"checksumSHA1": "/izTko8kHV/DrD0VbpQR5sFKgZA=",
 			"path": "github.com/xenolf/lego/acme",
-			"revision": "27e0f97c9df37cad8c4ba0ef1d133fa57afb7469",
-			"revisionTime": "2018-05-31T17:39:33Z",
-			"version": "v1.0.1",
-			"versionExact": "v1.0.1"
+			"revision": "286c44337e7fb0b3aceaf71c42448e887a6db218",
+			"revisionTime": "2018-11-05T16:54:38Z",
+			"version": "v1.2.1",
+			"versionExact": "v1.2.1"
 		},
 		{
-			"checksumSHA1": "ZwLawktDc3/cbx6toztnrDty/Vw=",
+			"checksumSHA1": "bfyKF7/Rcq8A3wdjeCQTdzjKczo=",
 			"path": "github.com/xenolf/lego/log",
-			"revision": "7fedfd1388f016c7ca7ed92a7f2024d06a7e20d8",
-			"revisionTime": "2018-06-03T18:23:01Z"
+			"revision": "43401f2475dd1f6cc2e220908f0caba246ea854e",
+			"revisionTime": "2019-01-03T15:59:53Z"
 		},
 		{
-			"checksumSHA1": "JaJ13msyKLYittsAgM+A1G6lL+c=",
+			"checksumSHA1": "a8rg8vKrKbhgH5yi2ns+w0c2Uyg=",
+			"path": "github.com/xenolf/lego/platform/config/env",
+			"revision": "43401f2475dd1f6cc2e220908f0caba246ea854e",
+			"revisionTime": "2019-01-03T15:59:53Z"
+		},
+		{
+			"checksumSHA1": "Xd3LUNhUHWo9IynWRuX5WvpDLqA=",
 			"path": "github.com/xenolf/lego/providers/dns/cloudflare",
-			"revision": "27e0f97c9df37cad8c4ba0ef1d133fa57afb7469",
-			"revisionTime": "2018-05-31T17:39:33Z",
-			"version": "v1.0.1",
-			"versionExact": "v1.0.1"
+			"revision": "286c44337e7fb0b3aceaf71c42448e887a6db218",
+			"revisionTime": "2018-11-05T16:54:38Z",
+			"version": "v1.2.1",
+			"versionExact": "v1.2.1"
 		},
 		{
 			"checksumSHA1": "2LpxYGSf068307b7bhAuVjvzLLc=",
@@ -335,6 +353,12 @@
 			"path": "golang.org/x/net/publicsuffix",
 			"revision": "a6577fac2d73be281a500b310739095313165611",
 			"revisionTime": "2017-03-08T20:54:49Z"
+		},
+		{
+			"checksumSHA1": "7Ev/X4Xe8P3961myez/hBKO05ig=",
+			"path": "golang.org/x/time/rate",
+			"revision": "85acf8d2951cb2a3bde7632f9ff273ef0379bcbd",
+			"revisionTime": "2018-11-08T03:19:45Z"
 		},
 		{
 			"checksumSHA1": "ikor+YKJu2eKwyFteBWhsb8IGy8=",
