@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -314,9 +315,9 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		// error if any of the host names is longer than 64 bytes
 		hostnames := strings.Split(desiredState.Hostnames, ",")
 		for _, hostname := range hostnames {
-			byteCount := len([]byte(hostname))
-			if byteCount > 64 {
-				err = fmt.Errorf("Hostname %v is %v bytes long; the maximum length for CN is 64 bytes", hostname, byteCount)
+			if !validateHostname(hostname) {
+				err = fmt.Errorf("Hostname %v is invalid", hostname)
+				log.Error().Err(err)
 				return status, err
 			}
 		}
@@ -484,4 +485,31 @@ func processSecret(kubeClient *k8s.Client, secret *apiv1.Secret, initiator strin
 	status = "skipped"
 
 	return status, nil
+}
+
+func validateHostname(hostname string) bool {
+	if len(hostname) > 253 {
+		return false
+	}
+
+	dnsNameParts := strings.Split(hostname, ".")
+	// we need at least a subdomain within a zone
+	if len(dnsNameParts) < 2 {
+		return false
+	}
+
+	// each label needs to be max 63 characters and only have alphanumeric or hyphen; or a wildcard star for it's first label
+	for index, label := range dnsNameParts {
+		if index != 0 || label != "*" {
+			matchesInvalidChars, _ := regexp.MatchString("[^a-zA-Z0-9-]", label)
+			if matchesInvalidChars {
+				return false
+			}
+		}
+
+		if len(label) > 63 {
+			return false
+		}
+	}
+	return true
 }

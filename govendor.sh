@@ -5,3 +5,4 @@ govendor fetch github.com/prometheus/client_golang/prometheus/promhttp@v0.8.0
 govendor fetch github.com/xenolf/lego/acme@v1.2.1
 govendor fetch github.com/xenolf/lego/providers/dns/cloudflare@v1.2.1
 govendor fetch github.com/rs/zerolog/log@v1.2.2
+govendor fetch github.com/stretchr/testify/assert@v1.1.4
