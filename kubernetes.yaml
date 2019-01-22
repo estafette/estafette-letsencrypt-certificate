@@ -92,3 +92,7 @@ spec:
       - name: letsencrypt-account
         secret:
           secretName: ${APP_NAME}-account
+      dnsConfig:
+        nameservers:
+        - 1.1.1.1
+        - 1.0.0.1
