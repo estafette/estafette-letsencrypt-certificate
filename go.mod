@@ -4,6 +4,7 @@ go 1.12
 
 require (
 	github.com/beorn7/perks v0.0.0-20160804104726-4c0e84591b9a // indirect
+	github.com/cenkalti/backoff v2.1.1+incompatible // indirect
 	github.com/cloudflare/cloudflare-go v0.0.0-20190102215809-0c85496d8730 // indirect
 	github.com/ericchiang/k8s v0.2.0
 	github.com/golang/protobuf v0.0.0-20170307001533-c9c7427a2a70 // indirect
@@ -16,7 +17,7 @@ require (
 	github.com/prometheus/procfs v0.0.0-20170216223256-a1dba9ce8bae // indirect
 	github.com/rs/zerolog v1.2.2
 	github.com/stretchr/testify v1.2.2
-	github.com/xenolf/lego v1.2.1
+	github.com/xenolf/lego v2.3.0+incompatible
 	golang.org/x/crypto v0.0.0-20180602220124-df8d4716b347 // indirect
 	golang.org/x/sync v0.0.0-20190227155943-e225da77a7e6 // indirect
 	golang.org/x/text v0.3.0 // indirect

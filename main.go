@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -26,8 +25,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/xenolf/lego/acme"
 	"github.com/xenolf/lego/providers/dns/cloudflare"
+	"github.com/xenolf/lego/certificate"
+	"github.com/xenolf/lego/lego"
 
 	"github.com/ericchiang/k8s"
 	apiv1 "github.com/ericchiang/k8s/api/v1"
@@ -346,13 +346,12 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		}
 		letsEncryptUser.key = privateKey
 
-		// set dns timeout
-		log.Info().Msgf("[%v] Secret %v.%v - Setting acme dns timeout to 600 seconds...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
-		acme.DNSTimeout = time.Duration(600) * time.Second
+		log.Info().Msgf("[%v] Secret %v.%v - Creating lego config...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		config := lego.NewConfig(&letsEncryptUser)
 
-		// create letsencrypt acme client
-		log.Info().Msgf("[%v] Secret %v.%v - Creating acme client...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
-		acmeClient, err := acme.NewClient("https://acme-v02.api.letsencrypt.org/directory", letsEncryptUser, acme.RSA2048)
+		// create letsencrypt lego client
+		log.Info().Msgf("[%v] Secret %v.%v - Creating lego client...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		legoClient, err := lego.NewClient(config)
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
@@ -360,8 +359,12 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 
 		// get dns challenge
 		log.Info().Msgf("[%v] Secret %v.%v - Creating cloudflare provider...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
-		var provider acme.ChallengeProvider
-		provider, err = cloudflare.NewDNSProviderCredentials(cfAPIEmail, cfAPIKey)
+		cloudflareConfig := cloudflare.NewDefaultConfig()
+		cloudflareConfig.AuthEmail = cfAPIEmail
+		cloudflareConfig.AuthKey =  cfAPIKey
+		cloudflareConfig.PropagationTimeout = 10*time.Minute
+
+		cloudflareProvider, err := cloudflare.NewDNSProviderConfig(cloudflareConfig)
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
@@ -370,35 +373,35 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		// clean up acme challenge records in advance
 		for _, hostname := range hostnames {
 			log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
-			err = provider.CleanUp(hostname, "", "123d==")
+			err = cloudflareProvider.CleanUp(hostname, "", "123d==")
 			if err != nil {
 				log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
 			}
 		}
 
-		// set challenge and provider
-		acmeClient.SetChallengeProvider(acme.DNS01, provider)
-		acmeClient.ExcludeChallenges([]acme.Challenge{acme.HTTP01, acme.TLSALPN01})
+		// set challenge provider
+		legoClient.Challenge.SetDNS01Provider(cloudflareProvider)
 
 		// get certificate
 		log.Info().Msgf("[%v] Secret %v.%v - Obtaining certificate...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
-		var certificate *acme.CertificateResource
-		var failure error
-		certificate, failure = acmeClient.ObtainCertificate(hostnames, true, nil, true)
+		request := certificate.ObtainRequest{
+			Domains: hostnames,
+			Bundle:  true,
+		}
+		certificates, err := legoClient.Certificate.Obtain(request)
 
 		// clean up acme challenge records afterwards
 		for _, hostname := range hostnames {
 			log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
-			err = provider.CleanUp(hostname, "", "123d==")
+			err = cloudflareProvider.CleanUp(hostname, "", "123d==")
 			if err != nil {
 				log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
 			}
 		}
 
 		// if obtaining secret failed exit and retry after more than 15 minutes
-		if failure != nil {
-			log.Error().Msgf("Could not obtain certificates\n\t%s", failure.Error())
-			err = errors.New("Generating certificates has failed")
+		if err != nil {
+			log.Error().Err(err).Msgf("Could not obtain certificates for domains %v", hostnames)
 			return status, err
 		}
 
@@ -424,26 +427,26 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		log.Info().Msgf("[%v] Secret %v.%v - Secret has %v data items before writing the certificates...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
 
 		// ssl keys
-		secret.Data["ssl.crt"] = certificate.Certificate
-		secret.Data["ssl.key"] = certificate.PrivateKey
-		secret.Data["ssl.pem"] = bytes.Join([][]byte{certificate.Certificate, certificate.PrivateKey}, []byte{})
-		if certificate.IssuerCertificate != nil {
-			secret.Data["ssl.issuer.crt"] = certificate.IssuerCertificate
+		secret.Data["ssl.crt"] = certificates.Certificate
+		secret.Data["ssl.key"] = certificates.PrivateKey
+		secret.Data["ssl.pem"] = bytes.Join([][]byte{certificates.Certificate, certificates.PrivateKey}, []byte{})
+		if certificates.IssuerCertificate != nil {
+			secret.Data["ssl.issuer.crt"] = certificates.IssuerCertificate
 		}
 
-		jsonBytes, err := json.MarshalIndent(certificate, "", "\t")
+		jsonBytes, err := json.MarshalIndent(certificates, "", "\t")
 		if err != nil {
-			log.Error().Msgf("[%v] Secret %v.%v - Unable to marshal CertResource for domain %s\n\t%s", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, certificate.Domain, err.Error())
+			log.Error().Msgf("[%v] Secret %v.%v - Unable to marshal CertResource for domain %s\n\t%s", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, certificates.Domain, err.Error())
 			return status, err
 		}
 		secret.Data["ssl.json"] = jsonBytes
 
 		// tls keys for ingress object
-		secret.Data["tls.crt"] = certificate.Certificate
-		secret.Data["tls.key"] = certificate.PrivateKey
-		secret.Data["tls.pem"] = bytes.Join([][]byte{certificate.Certificate, certificate.PrivateKey}, []byte{})
-		if certificate.IssuerCertificate != nil {
-			secret.Data["tls.issuer.crt"] = certificate.IssuerCertificate
+		secret.Data["tls.crt"] = certificates.Certificate
+		secret.Data["tls.key"] = certificates.PrivateKey
+		secret.Data["tls.pem"] = bytes.Join([][]byte{certificates.Certificate, certificates.PrivateKey}, []byte{})
+		if certificates.IssuerCertificate != nil {
+			secret.Data["tls.issuer.crt"] = certificates.IssuerCertificate
 		}
 		secret.Data["tls.json"] = jsonBytes
 

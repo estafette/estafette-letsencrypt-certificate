@@ -1,4 +1,4 @@
-package acme
+package http01 // import "github.com/xenolf/lego/challenge/http01"
 
 import (
 	"fmt"
@@ -9,31 +9,31 @@ import (
 	"github.com/xenolf/lego/log"
 )
 
-// HTTPProviderServer implements ChallengeProvider for `http-01` challenge
-// It may be instantiated without using the NewHTTPProviderServer function if
+// ProviderServer implements ChallengeProvider for `http-01` challenge
+// It may be instantiated without using the NewProviderServer function if
 // you want only to use the default values.
-type HTTPProviderServer struct {
+type ProviderServer struct {
 	iface    string
 	port     string
 	done     chan bool
 	listener net.Listener
 }
 
-// NewHTTPProviderServer creates a new HTTPProviderServer on the selected interface and port.
+// NewProviderServer creates a new ProviderServer on the selected interface and port.
 // Setting iface and / or port to an empty string will make the server fall back to
 // the "any" interface and port 80 respectively.
-func NewHTTPProviderServer(iface, port string) *HTTPProviderServer {
-	return &HTTPProviderServer{iface: iface, port: port}
+func NewProviderServer(iface, port string) *ProviderServer {
+	return &ProviderServer{iface: iface, port: port}
 }
 
-// Present starts a web server and makes the token available at `HTTP01ChallengePath(token)` for web requests.
-func (s *HTTPProviderServer) Present(domain, token, keyAuth string) error {
+// Present starts a web server and makes the token available at `ChallengePath(token)` for web requests.
+func (s *ProviderServer) Present(domain, token, keyAuth string) error {
 	if s.port == "" {
 		s.port = "80"
 	}
 
 	var err error
-	s.listener, err = net.Listen("tcp", net.JoinHostPort(s.iface, s.port))
+	s.listener, err = net.Listen("tcp", s.GetAddress())
 	if err != nil {
 		return fmt.Errorf("could not start HTTP server for challenge -> %v", err)
 	}
@@ -43,8 +43,12 @@ func (s *HTTPProviderServer) Present(domain, token, keyAuth string) error {
 	return nil
 }
 
-// CleanUp closes the HTTP server and removes the token from `HTTP01ChallengePath(token)`
-func (s *HTTPProviderServer) CleanUp(domain, token, keyAuth string) error {
+func (s *ProviderServer) GetAddress() string {
+	return net.JoinHostPort(s.iface, s.port)
+}
+
+// CleanUp closes the HTTP server and removes the token from `ChallengePath(token)`
+func (s *ProviderServer) CleanUp(domain, token, keyAuth string) error {
 	if s.listener == nil {
 		return nil
 	}
@@ -53,8 +57,8 @@ func (s *HTTPProviderServer) CleanUp(domain, token, keyAuth string) error {
 	return nil
 }
 
-func (s *HTTPProviderServer) serve(domain, token, keyAuth string) {
-	path := HTTP01ChallengePath(token)
+func (s *ProviderServer) serve(domain, token, keyAuth string) {
+	path := ChallengePath(token)
 
 	// The handler validates the HOST header and request type.
 	// For validation it then writes the token the server returned with the challenge
@@ -80,12 +84,12 @@ func (s *HTTPProviderServer) serve(domain, token, keyAuth string) {
 
 	httpServer := &http.Server{Handler: mux}
 
-	// Once httpServer is shut down we don't want any lingering
-	// connections, so disable KeepAlives.
+	// Once httpServer is shut down
+	// we don't want any lingering connections, so disable KeepAlives.
 	httpServer.SetKeepAlivesEnabled(false)
 
 	err := httpServer.Serve(s.listener)
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
 		log.Println(err)
 	}
 	s.done <- true
