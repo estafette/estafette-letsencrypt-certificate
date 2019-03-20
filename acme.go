@@ -7,29 +7,23 @@ import (
 	"errors"
 	"io/ioutil"
 
-	"github.com/xenolf/lego/acme"
+	"github.com/xenolf/lego/registration"
 )
 
 type LetsEncryptUser struct {
-	Email        string
-	Registration *acme.RegistrationResource
+	Email        string                 `json:"email"`
+	Registration *registration.Resource `json:"registration"`
 	key          crypto.PrivateKey
 }
 
 func (u LetsEncryptUser) GetEmail() string {
 	return u.Email
 }
-func (u LetsEncryptUser) GetRegistration() *acme.RegistrationResource {
+func (u LetsEncryptUser) GetRegistration() *registration.Resource {
 	return u.Registration
 }
 func (u LetsEncryptUser) GetPrivateKey() crypto.PrivateKey {
 	return u.key
-}
-
-type Account struct {
-	Email        string `json:"email"`
-	key          crypto.PrivateKey
-	Registration *acme.RegistrationResource `json:"registration"`
 }
 
 func loadPrivateKey(file string) (crypto.PrivateKey, error) {

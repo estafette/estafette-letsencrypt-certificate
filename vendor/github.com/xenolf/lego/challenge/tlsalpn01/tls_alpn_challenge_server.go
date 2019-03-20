@@ -1,49 +1,54 @@
-package acme
+package tlsalpn01 // import "github.com/xenolf/lego/challenge/tlsalpn01"
 
 import (
 	"crypto/tls"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
+	"strings"
+
+	"github.com/xenolf/lego/log"
 )
 
 const (
 	// ACMETLS1Protocol is the ALPN Protocol ID for the ACME-TLS/1 Protocol.
 	ACMETLS1Protocol = "acme-tls/1"
 
-	// defaultTLSPort is the port that the TLSALPNProviderServer will default to
+	// defaultTLSPort is the port that the ProviderServer will default to
 	// when no other port is provided.
 	defaultTLSPort = "443"
 )
 
-// TLSALPNProviderServer implements ChallengeProvider for `TLS-ALPN-01`
-// challenge. It may be instantiated without using the NewTLSALPNProviderServer
+// ProviderServer implements ChallengeProvider for `TLS-ALPN-01` challenge.
+// It may be instantiated without using the NewProviderServer
 // if you want only to use the default values.
-type TLSALPNProviderServer struct {
+type ProviderServer struct {
 	iface    string
 	port     string
 	listener net.Listener
 }
 
-// NewTLSALPNProviderServer creates a new TLSALPNProviderServer on the selected
-// interface and port. Setting iface and / or port to an empty string will make
-// the server fall back to the "any" interface and port 443 respectively.
-func NewTLSALPNProviderServer(iface, port string) *TLSALPNProviderServer {
-	return &TLSALPNProviderServer{iface: iface, port: port}
+// NewProviderServer creates a new ProviderServer on the selected interface and port.
+// Setting iface and / or port to an empty string will make the server fall back to
+// the "any" interface and port 443 respectively.
+func NewProviderServer(iface, port string) *ProviderServer {
+	return &ProviderServer{iface: iface, port: port}
+}
+
+func (s *ProviderServer) GetAddress() string {
+	return net.JoinHostPort(s.iface, s.port)
 }
 
 // Present generates a certificate with a SHA-256 digest of the keyAuth provided
-// as the acmeValidation-v1 extension value to conform to the ACME-TLS-ALPN
-// spec.
-func (t *TLSALPNProviderServer) Present(domain, token, keyAuth string) error {
-	if t.port == "" {
+// as the acmeValidation-v1 extension value to conform to the ACME-TLS-ALPN spec.
+func (s *ProviderServer) Present(domain, token, keyAuth string) error {
+	if s.port == "" {
 		// Fallback to port 443 if the port was not provided.
-		t.port = defaultTLSPort
+		s.port = defaultTLSPort
 	}
 
 	// Generate the challenge certificate using the provided keyAuth and domain.
-	cert, err := TLSALPNChallengeCert(domain, keyAuth)
+	cert, err := ChallengeCert(domain, keyAuth)
 	if err != nil {
 		return err
 	}
@@ -59,15 +64,15 @@ func (t *TLSALPNProviderServer) Present(domain, token, keyAuth string) error {
 	tlsConf.NextProtos = []string{ACMETLS1Protocol}
 
 	// Create the listener with the created tls.Config.
-	t.listener, err = tls.Listen("tcp", net.JoinHostPort(t.iface, t.port), tlsConf)
+	s.listener, err = tls.Listen("tcp", s.GetAddress(), tlsConf)
 	if err != nil {
 		return fmt.Errorf("could not start HTTPS server for challenge -> %v", err)
 	}
 
 	// Shut the server down when we're finished.
 	go func() {
-		err := http.Serve(t.listener, nil)
-		if err != nil {
+		err := http.Serve(s.listener, nil)
+		if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
 			log.Println(err)
 		}
 	}()
@@ -76,13 +81,13 @@ func (t *TLSALPNProviderServer) Present(domain, token, keyAuth string) error {
 }
 
 // CleanUp closes the HTTPS server.
-func (t *TLSALPNProviderServer) CleanUp(domain, token, keyAuth string) error {
-	if t.listener == nil {
+func (s *ProviderServer) CleanUp(domain, token, keyAuth string) error {
+	if s.listener == nil {
 		return nil
 	}
 
 	// Server was created, close it.
-	if err := t.listener.Close(); err != nil && err != http.ErrServerClosed {
+	if err := s.listener.Close(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
