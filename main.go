@@ -25,9 +25,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/xenolf/lego/providers/dns/cloudflare"
-	"github.com/xenolf/lego/certificate"
-	"github.com/xenolf/lego/lego"
+	"github.com/go-acme/lego/providers/dns/cloudflare"
+	"github.com/go-acme/lego/certificate"
+	"github.com/go-acme/lego/lego"
 
 	"github.com/ericchiang/k8s"
 	apiv1 "github.com/ericchiang/k8s/api/v1"
