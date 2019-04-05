@@ -7,7 +7,7 @@ import (
 
 const (
 	qnameCharFmt           string = "[A-Za-z0-9]"
-	qnameExtCharFmt        string = "[-A-Za-z0-9_.]"
+	qnameExtCharFmt        string = "[-A-Za-z0-9_./]"
 	qualifiedNameFmt       string = "(" + qnameCharFmt + qnameExtCharFmt + "*)?" + qnameCharFmt
 	qualifiedNameMaxLength int    = 63
 	labelValueFmt          string = "(" + qualifiedNameFmt + ")?"
@@ -28,17 +28,11 @@ type LabelSelector struct {
 	stmts []string
 }
 
-type labelSelectorOption string
-
-func (l labelSelectorOption) queryParam() (string, string) {
-	return "labelSelector", string(l)
-}
-
 func (l *LabelSelector) Selector() Option {
-	return labelSelectorOption(l.encode())
+	return QueryParam("labelSelector", l.String())
 }
 
-func (l *LabelSelector) encode() string {
+func (l *LabelSelector) String() string {
 	return strings.Join(l.stmts, ",")
 }
 

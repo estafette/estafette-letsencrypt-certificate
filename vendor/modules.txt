@@ -6,27 +6,15 @@ github.com/cenkalti/backoff
 github.com/cloudflare/cloudflare-go
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
-# github.com/ericchiang/k8s v0.2.0
+# github.com/ericchiang/k8s v1.2.0
 github.com/ericchiang/k8s
-github.com/ericchiang/k8s/api/v1
-github.com/ericchiang/k8s/api/unversioned
-github.com/ericchiang/k8s/apis/apps/v1alpha1
-github.com/ericchiang/k8s/apis/apps/v1beta1
-github.com/ericchiang/k8s/apis/authentication/v1beta1
-github.com/ericchiang/k8s/apis/authorization/v1beta1
-github.com/ericchiang/k8s/apis/autoscaling/v1
-github.com/ericchiang/k8s/apis/batch/v1
-github.com/ericchiang/k8s/apis/batch/v2alpha1
-github.com/ericchiang/k8s/apis/certificates/v1alpha1
-github.com/ericchiang/k8s/apis/extensions/v1beta1
-github.com/ericchiang/k8s/apis/imagepolicy/v1alpha1
-github.com/ericchiang/k8s/apis/policy/v1alpha1
-github.com/ericchiang/k8s/apis/policy/v1beta1
-github.com/ericchiang/k8s/apis/rbac/v1alpha1
-github.com/ericchiang/k8s/apis/storage/v1beta1
+github.com/ericchiang/k8s/apis/core/v1
+github.com/ericchiang/k8s/apis/meta/v1
 github.com/ericchiang/k8s/runtime
 github.com/ericchiang/k8s/watch/versioned
-github.com/ericchiang/k8s/api/resource
+github.com/ericchiang/k8s/apis/apiextensions/v1beta1
+github.com/ericchiang/k8s/apis/resource
+github.com/ericchiang/k8s/runtime/schema
 github.com/ericchiang/k8s/util/intstr
 # github.com/go-acme/lego v2.4.0+incompatible
 github.com/go-acme/lego/certificate

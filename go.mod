@@ -6,7 +6,7 @@ require (
 	github.com/beorn7/perks v0.0.0-20160804104726-4c0e84591b9a // indirect
 	github.com/cenkalti/backoff v2.1.1+incompatible // indirect
 	github.com/cloudflare/cloudflare-go v0.0.0-20190102215809-0c85496d8730 // indirect
-	github.com/ericchiang/k8s v0.2.0
+	github.com/ericchiang/k8s v1.2.0
 	github.com/go-acme/lego v2.4.0+incompatible
 	github.com/golang/protobuf v0.0.0-20170307001533-c9c7427a2a70 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
