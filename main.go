@@ -30,7 +30,7 @@ import (
 	"github.com/go-acme/lego/lego"
 
 	"github.com/ericchiang/k8s"
-	apiv1 "github.com/ericchiang/k8s/api/v1"
+	corev1 "github.com/ericchiang/k8s/apis/core/v1"
 )
 
 const annotationLetsEncryptCertificate string = "estafette.io/letsencrypt-certificate"
@@ -143,21 +143,25 @@ func main() {
 		// loop indefinitely
 		for {
 			log.Info().Msg("Watching secrets for all namespaces...")
-			watcher, err := client.CoreV1().WatchSecrets(context.Background(), k8s.AllNamespaces)
+			var secret corev1.Secret
+			watcher, err := client.Watch(context.Background(), k8s.AllNamespaces, &secret, k8s.Timeout(time.Duration(300)*time.Second))
+			defer watcher.Close()
+
 			if err != nil {
 				log.Error().Err(err)
 			} else {
 				// loop indefinitely, unless it errors
 				for {
-					event, secret, err := watcher.Next()
+					secret := new(corev1.Secret)
+					event, err := watcher.Next(secret)
 					if err != nil {
 						log.Error().Err(err)
 						break
 					}
 
-					if *event.Type == k8s.EventAdded || *event.Type == k8s.EventModified {
+					if event == k8s.EventAdded || event == k8s.EventModified {
 						waitGroup.Add(1)
-						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", *event.Type))
+						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", event))
 						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
 						waitGroup.Done()
 
@@ -182,24 +186,23 @@ func main() {
 
 			// get secrets for all namespaces
 			log.Info().Msg("Listing secrets for all namespaces...")
-			secrets, err := client.CoreV1().ListSecrets(context.Background(), k8s.AllNamespaces)
+			var secrets corev1.SecretList
+			err := client.List(context.Background(), k8s.AllNamespaces, &secrets)
 			if err != nil {
 				log.Error().Err(err)
 			}
 			log.Info().Msgf("Cluster has %v secrets", len(secrets.Items))
 
 			// loop all secrets
-			if secrets != nil && secrets.Items != nil {
-				for _, secret := range secrets.Items {
-					waitGroup.Add(1)
-					status, err := processSecret(client, secret, "poller")
-					certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
-					waitGroup.Done()
+			for _, secret := range secrets.Items {
+				waitGroup.Add(1)
+				status, err := processSecret(client, secret, "poller")
+				certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
+				waitGroup.Done()
 
-					if err != nil {
-						log.Error().Err(err)
-						continue
-					}
+				if err != nil {
+					log.Error().Err(err)
+					continue
 				}
 			}
 
@@ -226,7 +229,7 @@ func applyJitter(input int) (output int) {
 	return input - deviation + r.Intn(2*deviation)
 }
 
-func getDesiredSecretState(secret *apiv1.Secret) (state LetsEncryptCertificateState) {
+func getDesiredSecretState(secret *corev1.Secret) (state LetsEncryptCertificateState) {
 
 	var ok bool
 
@@ -243,7 +246,7 @@ func getDesiredSecretState(secret *apiv1.Secret) (state LetsEncryptCertificateSt
 	return
 }
 
-func getCurrentSecretState(secret *apiv1.Secret) (state LetsEncryptCertificateState) {
+func getCurrentSecretState(secret *corev1.Secret) (state LetsEncryptCertificateState) {
 
 	// get state stored in annotations if present or set to empty struct
 	letsEncryptCertificateStateString, ok := secret.Metadata.Annotations[annotationLetsEncryptCertificateState]
@@ -263,7 +266,7 @@ func getCurrentSecretState(secret *apiv1.Secret) (state LetsEncryptCertificateSt
 	return
 }
 
-func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator string, desiredState, currentState LetsEncryptCertificateState) (status string, err error) {
+func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator string, desiredState, currentState LetsEncryptCertificateState) (status string, err error) {
 
 	cfAPIKey := os.Getenv("CF_API_KEY")
 	cfAPIEmail := os.Getenv("CF_API_EMAIL")
@@ -306,7 +309,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
 
 		// update secret, with last attempt; this will fire an event for the watcher, but this shouldn't lead to any action because storing the last attempt locks the secret for 15 minutes
-		secret, err = kubeClient.CoreV1().UpdateSecret(context.Background(), secret)
+		err = kubeClient.Update(context.Background(), secret)
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
@@ -453,7 +456,8 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 		log.Info().Msgf("[%v] Secret %v.%v - Secret has %v data items after writing the certificates...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
 
 		// update secret, because the data and state annotation have changed
-		secret, err = kubeClient.CoreV1().UpdateSecret(context.Background(), secret)
+		err = kubeClient.Update(context.Background(), secret)
+
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
@@ -471,7 +475,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *apiv1.Secret, initiator s
 	return status, nil
 }
 
-func processSecret(kubeClient *k8s.Client, secret *apiv1.Secret, initiator string) (status string, err error) {
+func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator string) (status string, err error) {
 
 	status = "failed"
 
