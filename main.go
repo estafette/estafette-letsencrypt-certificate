@@ -145,7 +145,6 @@ func main() {
 		for {
 			log.Info().Msg("Watching secrets for all namespaces...")
 			var secret corev1.Secret
-			var event eventsv1beta1.Event
 			watcher, err := client.Watch(context.Background(), k8s.AllNamespaces, &secret, k8s.Timeout(time.Duration(300)*time.Second))
 			defer watcher.Close()
 
@@ -164,7 +163,7 @@ func main() {
 
 					if eventType == k8s.EventAdded || eventType == k8s.EventModified {
 						waitGroup.Add(1)
-						status, err := processSecret(client, secret, event fmt.Sprintf("watcher:%v", eventType))
+						status, err := processSecret(client, secret, event, fmt.Sprintf("watcher:%v", eventType))
 						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
 						waitGroup.Done()
 
@@ -198,8 +197,9 @@ func main() {
 
 			// loop all secrets
 			for _, secret := range secrets.Items {
+				event := new(eventsv1beta1.Event)
 				waitGroup.Add(1)
-				status, err := processSecret(client, secret, "poller")
+				status, err := processSecret(client, secret, event, "poller")
 				certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
 				waitGroup.Done()
 
@@ -479,23 +479,22 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 }
 
 func postEventAboutStatus(kubeClient *k8s.Client,secret *corev1.Secret, event *eventsv1beta1.Event, action string, reason string, note string )(status string, err error){
-	// Assign Metadata to event.
-	event.Metadata.Namespace = *secret.Metadata.Namespace
-	event.Metadata.CreationTimestamp = time.Now().Format(time.RFC3339)
-	event.Metadata.Labels = *secret.Metadata.Labels
 
-	
 	now := time.Now()
-	secs := now.Unix()
-	nanos := now.UnixNano()
-	event.EventTime.Seconds = int64(secs)
+	secs := int64(now.Unix())
+	
+	// Assign Metadata to event.
+	event.Metadata.Namespace = secret.Metadata.Namespace
+	event.Metadata.CreationTimestamp.Seconds = &secs
+	event.Metadata.Labels = secret.Metadata.Labels
+	event.EventTime.Seconds = &secs
 
-	event.Action = action
-	event.Note = note
+	event.Action = &action
+	event.Note = &note
 
-	err = kubeClient.Create(context.Background(), secret)
+	err = kubeClient.Create(context.Background(), event)
 
-	return nil, err
+	return "succeed", err
 
 }
 func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, event *eventsv1beta1.Event , initiator string) (status string, err error) {
