@@ -484,9 +484,9 @@ func postEventAboutStatus(kubeClient *k8s.Client,secret *corev1.Secret, event *e
 	secs := int64(now.Unix())
 	
 	// Assign Metadata to event.
-	event.Metadata.Namespace = secret.Metadata.Namespace
+	// event.Metadata.Namespace = secret.Metadata.Namespace
 	event.Metadata.CreationTimestamp.Seconds = &secs
-	event.Metadata.Labels = secret.Metadata.Labels
+	// event.Metadata.Labels = secret.Metadata.Labels
 	event.EventTime.Seconds = &secs
 
 	event.Action = &action
