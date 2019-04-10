@@ -515,7 +515,7 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 		event := new(eventsv1beta1.Event)
 
 		status, err = makeSecretChanges(kubeClient, secret, initiator, desiredState, currentState)
-		//err = postEventAboutStatus(kubeClient, secret, event, status, "The reason", "Warning")
+		err = postEventAboutStatus(kubeClient, secret, event, status, "The reason", "Warning")
 		return
 	}
 
