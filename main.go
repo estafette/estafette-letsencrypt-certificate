@@ -490,7 +490,12 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, event *
 
 	err = kubeClient.Create(context.Background(), event)
 
-	return err
+	if err != nil {
+		log.Error().Err(err)
+		return err
+	}
+
+	return nil
 
 }
 
