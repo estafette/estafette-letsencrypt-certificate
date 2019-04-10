@@ -32,6 +32,7 @@ import (
 	"github.com/ericchiang/k8s"
 	corev1 "github.com/ericchiang/k8s/apis/core/v1"
 	eventsv1beta1 "github.com/ericchiang/k8s/apis/events/v1beta1"
+	metav1 "github.com/ericchiang/k8s/apis/meta/v1"
 )
 
 const annotationLetsEncryptCertificate string = "estafette.io/letsencrypt-certificate"
@@ -480,9 +481,13 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, event *
 
 	now := time.Now()
 	secs := int64(now.Unix())
+	event.Metadata = new(metav1.ObjectMeta)
 	event.Metadata.Namespace = secret.Metadata.Namespace
+	event.Metadata.CreationTimestamp = new(metav1.Time)
 	event.Metadata.CreationTimestamp.Seconds = &secs
+
 	event.Metadata.Labels = secret.Metadata.Labels
+	event.EventTime = new(metav1.MicroTime)
 	event.EventTime.Seconds = &secs
 
 	event.Action = &action
@@ -510,7 +515,7 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 		event := new(eventsv1beta1.Event)
 
 		status, err = makeSecretChanges(kubeClient, secret, initiator, desiredState, currentState)
-		err = postEventAboutStatus(kubeClient, secret, event, status, "The reason", "Warning")
+		//err = postEventAboutStatus(kubeClient, secret, event, status, "The reason", "Warning")
 		return
 	}
 
