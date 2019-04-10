@@ -482,6 +482,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, event *
 	now := time.Now()
 	secs := int64(now.Unix())
 	event.Metadata = new(metav1.ObjectMeta)
+	event.Metadata.Name = secret.Metadata.Name
 	event.Metadata.Namespace = secret.Metadata.Namespace
 	event.Metadata.CreationTimestamp = new(metav1.Time)
 	event.Metadata.CreationTimestamp.Seconds = &secs
@@ -494,7 +495,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, event *
 	event.Note = &note
 
 	err = kubeClient.Create(context.Background(), event)
-
+	log.Info().Msgf("Loading Event... %v, %v, %v, %v ", *event.Metadata.Name, *event.Metadata.Namespace, *event.Action, *event.Note)
 	if err != nil {
 		log.Error().Err(err)
 		return err
