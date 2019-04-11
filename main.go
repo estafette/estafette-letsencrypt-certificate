@@ -494,14 +494,16 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, event *
 	event.Action = &action
 	event.Note = &note
 
-	err = kubeClient.Create(context.Background(), event)
-	log.Info().Msgf("Loading Event... %v, %v, %v, %v ", *event.Metadata.Name, *event.Metadata.Namespace, *event.Action, *event.Note)
-	if err != nil {
+	if err := kubeClient.Create(context.Background(), event); err != nil{
 		log.Error().Err(err)
 		return err
 	}
+	if apiErr, ok := err.(*k8s.APIError); ok {
+		// Resource already exists. Carry on.
+		log.Info().Msgf(" Api Server Code: %v", apiErr.Code  )
+	}
 
-	return nil
+	return
 
 }
 
