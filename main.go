@@ -119,6 +119,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err)
 	}
+	log.Info().Msg("Creating Event...")
 	event := new(eventsv1beta1.Event)
 	err = postEventAboutStatus(client, event, "EventAdded", "The reason", "Warning")
 
@@ -492,19 +493,21 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 	// event.Metadata.CreationTimestamp.Seconds = &secs
 
 	// event.Metadata.Labels = secret.Metadata.Labels
+	log.Info().Msgf(" Starting Function")
+
 	event.EventTime = new(metav1.MicroTime)
 	event.EventTime.Seconds = &secs
 
 	event.Action = &action
 	event.Note = &note
 
-	err = kubeClient.Create(context.Background(), event)
+	err = kubeClient.Create(context.TODO(), event)
 	if err != nil {
 		log.Error().Err(err)
 		return err
 	}
 	apiErr, ok := err.(*k8s.APIError); 
-	log.Info().Msgf(" Api Server Code: %v %v", apiErr.Code, ok )
+	log.Info().Msgf(" Api Server Code %v", ok)
 
 	return
 }
