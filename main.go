@@ -119,6 +119,9 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err)
 	}
+	event := new(eventsv1beta1.Event)
+	err = postEventAboutStatus(client, event, "EventAdded", "The reason", "Warning")
+
 
 	// start prometheus
 	go func() {
@@ -477,18 +480,18 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 	return status, nil
 }
 
-func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, event *eventsv1beta1.Event, action string, reason string, note string )(err error){
+func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, action string, reason string, note string )(err error){
 
 	now := time.Now()
 	secs := int64(now.Unix())
-	event.Metadata = new(metav1.ObjectMeta)
-	event.Metadata.Name = secret.Metadata.Name
-	event.Metadata.Namespace = secret.Metadata.Namespace
+	// event.Metadata = new(metav1.ObjectMeta)
+	// event.Metadata.Name = secret.Metadata.Name
+	// event.Metadata.Namespace = secret.Metadata.Namespace
 
-	event.Metadata.CreationTimestamp = new(metav1.Time)
-	event.Metadata.CreationTimestamp.Seconds = &secs
+	// event.Metadata.CreationTimestamp = new(metav1.Time)
+	// event.Metadata.CreationTimestamp.Seconds = &secs
 
-	event.Metadata.Labels = secret.Metadata.Labels
+	// event.Metadata.Labels = secret.Metadata.Labels
 	event.EventTime = new(metav1.MicroTime)
 	event.EventTime.Seconds = &secs
 
@@ -501,7 +504,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, event *
 		return err
 	}
 	apiErr, ok := err.(*k8s.APIError); 
-	log.Info().Msgf(" Api Server Code: %v %v", apiErr.Code, ok  )
+	log.Info().Msgf(" Api Server Code: %v %v", apiErr.Code, ok )
 
 	return
 }
@@ -514,10 +517,10 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 
 		desiredState := getDesiredSecretState(secret)
 		currentState := getCurrentSecretState(secret)
-		event := new(eventsv1beta1.Event)
+		// event := new(eventsv1beta1.Event)
 
 		status, err = makeSecretChanges(kubeClient, secret, initiator, desiredState, currentState)
-		err = postEventAboutStatus(kubeClient, secret, event, status, "The reason", "Warning")
+		//err = postEventAboutStatus(kubeClient, event, status, "The reason", "Warning")
 		return
 	}
 
