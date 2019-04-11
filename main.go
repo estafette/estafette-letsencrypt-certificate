@@ -506,9 +506,6 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 		log.Error().Err(err)
 		return err
 	}
-	apiErr, ok := err.(*k8s.APIError); 
-	log.Info().Msgf(" Api Server Code %v", ok)
-
 	return
 }
 
