@@ -484,12 +484,14 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 
 	now := time.Now()
 	secs := int64(now.Unix())
-	// event.Metadata = new(metav1.ObjectMeta)
-	// event.Metadata.Name = secret.Metadata.Name
-	// event.Metadata.Namespace = secret.Metadata.Namespace
+	name := "letsencryptevent"
+	namespace := "estafette"
+	event.Metadata = new(metav1.ObjectMeta)
+	event.Metadata.Name = &name
+	event.Metadata.Namespace = &namespace
 
-	// event.Metadata.CreationTimestamp = new(metav1.Time)
-	// event.Metadata.CreationTimestamp.Seconds = &secs
+	event.Metadata.CreationTimestamp = new(metav1.Time)
+	event.Metadata.CreationTimestamp.Seconds = &secs
 
 	// event.Metadata.Labels = secret.Metadata.Labels
 	log.Info().Msgf(" Starting Function")
