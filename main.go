@@ -505,6 +505,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 
 	err = kubeClient.Create(context.TODO(), event)
 	if err != nil {
+		log.Info().Msgf("Error happened...")
 		log.Error().Err(err)
 		return err
 	}
