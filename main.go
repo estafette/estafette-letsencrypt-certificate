@@ -506,7 +506,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 		// if apiErr.Code == http.StatusConflict {
 		// 	return nil
 		// }
-	log.Info().Msgf("Api Error %v %v",err)
+	log.Info().Msgf("Api Error %v",err)
 
 
 	// if err != nil {
@@ -514,7 +514,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 	// 	log.Error().Err(err)
 	// 	return err
 	// }
-	log.Info().Msgf(" Ending Function")
+	log.Info().Msgf("Ending Function")
 
 	return
 }
