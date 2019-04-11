@@ -501,16 +501,15 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 	event.Note = &note
 
 	err = kubeClient.Create(context.TODO(), event)
-	if apiErr, ok := err.(*k8s.APIError); ok {
+    apiErr, ok := err.(*k8s.APIError)
 		// Resource already exists. Carry on.
 		// if apiErr.Code == http.StatusConflict {
 		// 	return nil
 		// }
-		log.Info().Msgf("Api Error Code %v", apiErr.Code)
-		log.Info().Msgf("Api Error %v", err)
+	log.Info().Msgf("Api Error Code %v", apiErr.Code)
+	log.Info().Msgf("Api Error %v", err)
 
 
-	}
 	// if err != nil {
 	// 	log.Info().Msgf("Error happened...")
 	// 	log.Error().Err(err)
