@@ -122,9 +122,6 @@ func main() {
 	log.Info().Msg("Creating Event...")
 	event := new(eventsv1beta1.Event)
 	err = postEventAboutStatus(client, event, "EventAdded", "The reason", "Warning")
-	if err != nil{
-		log.Fatal().Err(err)
-	}
 
 	// start prometheus
 	go func() {
@@ -504,11 +501,21 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 	event.Note = &note
 
 	err = kubeClient.Create(context.TODO(), event)
-	if err != nil {
-		log.Info().Msgf("Error happened...")
-		log.Error().Err(err)
-		return err
+	if apiErr, ok := err.(*k8s.APIError); ok {
+		// Resource already exists. Carry on.
+		// if apiErr.Code == http.StatusConflict {
+		// 	return nil
+		// }
+		log.Info().Msgf("Api Error Code %v", apiErr.Code)
+		log.Info().Msgf("Api Error %v", err)
+
+
 	}
+	// if err != nil {
+	// 	log.Info().Msgf("Error happened...")
+	// 	log.Error().Err(err)
+	// 	return err
+	// }
 	log.Info().Msgf(" Ending Function")
 
 	return
