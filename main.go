@@ -484,6 +484,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, event *
 	event.Metadata = new(metav1.ObjectMeta)
 	event.Metadata.Name = secret.Metadata.Name
 	event.Metadata.Namespace = secret.Metadata.Namespace
+
 	event.Metadata.CreationTimestamp = new(metav1.Time)
 	event.Metadata.CreationTimestamp.Seconds = &secs
 
@@ -494,17 +495,15 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, event *
 	event.Action = &action
 	event.Note = &note
 
-	if err := kubeClient.Create(context.Background(), event); err != nil{
+	err = kubeClient.Create(context.Background(), event)
+	if err != nil {
 		log.Error().Err(err)
 		return err
 	}
-	if apiErr, ok := err.(*k8s.APIError); ok {
-		// Resource already exists. Carry on.
-		log.Info().Msgf(" Api Server Code: %v", apiErr.Code  )
-	}
+	apiErr, ok := err.(*k8s.APIError); 
+	log.Info().Msgf(" Api Server Code: %v %v", apiErr.Code, ok  )
 
 	return
-
 }
 
 func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator string) (status string, err error) {
