@@ -284,7 +284,7 @@ func newClient(cluster Cluster, user AuthInfo, namespace string) (*Client, error
 			return nil, fmt.Errorf("load token file: %v", err)
 		}
 		token = string(data)
-		fmt.Println(user.token)
+		fmt.Println(user.Token)
 	}
 
 	transport := &http.Transport{
