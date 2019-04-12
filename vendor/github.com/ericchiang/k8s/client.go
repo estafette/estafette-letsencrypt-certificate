@@ -478,7 +478,7 @@ func (c *Client) do(ctx context.Context, verb, url string, req, resp interface{}
 
 	respCT := re.Header.Get("Content-Type")
 	if err := checkStatusCode(respCT, re.StatusCode, respBody); err != nil {
-		return fmt.Errorf("%v %v", err, url)
+		return fmt.Errorf("%v %v %v", err, url, body)
 	}
 	if resp != nil {
 		if err := unmarshal(respBody, respCT, resp); err != nil {
