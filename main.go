@@ -508,6 +508,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 		// if apiErr.Code == http.StatusConflict {
 		// 	return nil
 		// }
+	log.info.Msgf(event)
 	log.Info().Msgf("Api Error %v",err)
 
 
