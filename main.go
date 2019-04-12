@@ -120,7 +120,7 @@ func main() {
 		log.Fatal().Err(err)
 	}
 	log.Info().Msg("Creating Event...")
-	event := new(eventsv1beta1.Event)
+	event := eventsv1beta1.Event{}
 	err = postEventAboutStatus(client, event, "EventAdded", "The reason", "Warning")
 
 	// start prometheus
@@ -502,7 +502,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 	event.Action = &action
 	event.Note = &note
 
-	err = kubeClient.Create(context.TODO(), event)
+	err = kubeClient.Create(context.Background(), event)
     // apiErr, ok := err.(*k8s.APIError)
 		// Resource already exists. Carry on.
 		// if apiErr.Code == http.StatusConflict {
@@ -526,7 +526,7 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 	status = "failed"
 
 	if &secret != nil && &secret.Metadata != nil && &secret.Metadata.Annotations != nil {
-
+	
 		desiredState := getDesiredSecretState(secret)
 		currentState := getCurrentSecretState(secret)
 		// event := new(eventsv1beta1.Event)
