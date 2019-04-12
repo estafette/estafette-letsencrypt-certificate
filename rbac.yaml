@@ -12,7 +12,7 @@ rules:
   - list
   - update
   - watch
-- apiGroups: ["events.k8s.io"] # "" indicates the core API group
+- apiGroups: ["events.k8s.io"] # "" indicates the events/v1beta1 API group
   resources:
   - events
   verbs:

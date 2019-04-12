@@ -120,6 +120,8 @@ func main() {
 		log.Fatal().Err(err)
 	}
 	log.Info().Msg("Creating Event...")
+	event := &eventsv1beta1.Event{}
+	err = postEventAboutStatus(client, event, "EventAdded", "The reason", "Warning")
 
 	// start prometheus
 	go func() {
@@ -527,10 +529,10 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 	
 		desiredState := getDesiredSecretState(secret)
 		currentState := getCurrentSecretState(secret)
-		event := new(eventsv1beta1.Event)
+		// event := new(eventsv1beta1.Event)
 
 		status, err = makeSecretChanges(kubeClient, secret, initiator, desiredState, currentState)
-		err = postEventAboutStatus(kubeClient, event, status, "The reason", "Warning")
+		//err = postEventAboutStatus(kubeClient, event, status, "The reason", "Warning")
 		return
 	}
 
