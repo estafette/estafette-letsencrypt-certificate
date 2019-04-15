@@ -18,7 +18,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -117,10 +116,6 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err)
 	}
-	log.Info().Msg("Creating Event...")
-	event := new(corev1.Event)
-	err = postEventAboutStatus(client, event, "EventAdded", "The reason", "Warning")
-
 	// start prometheus
 	go func() {
 		log.Debug().
@@ -478,64 +473,77 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 	return status, nil
 }
 
-func postEventAboutStatus(kubeClient *k8s.Client, event *corev1.Event, action string, reason string, note string )(err error){
+func isEventExist(kubeClient *k8s.Client, namespace string, name string, event *corev1.Event ) (err error){
+	err = kubeClient.Get(context.Background(), namespace, name, event)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
+func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventType string, action string, reason string, kind string )(err error){
+	log.Info().Msgf(" Starting Function")
 	now := time.Now()
 	secs := int64(now.Unix())
-	name := string("letsencryptevent")
-	namespace := string("estafette")
-	kind := string("Secret")
+	count := int32(1)
+	var eventResp corev1.Event
+	err = isEventExist(kubeClient, *secret.Metadata.Namespace, *secret.Metadata.Name, &eventResp)
+	if err != nil {
+		count = *eventResp.Count+ 1
+		eventResp.Type = &eventType
+		eventResp.Action = &action
+		eventResp.Reason = &reason
+		eventResp.Count = &count
+		eventResp.LastTimestamp.Seconds = &secs
+		err = kubeClient.Update(context.Background(), &eventResp)
+		if err != nil {
+			log.Error().Msgf("Event %v.%v - Update Event failed.\n\t%s", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace, err.Error())
+		}
+		log.Info().Msgf("Event %v.%v - has been updated successfully...", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace)
+		return
+	}
+	event := new(corev1.Event)
 	event.Metadata = new(metav1.ObjectMeta)
-	event.Metadata.Name = &name
-	event.Metadata.Namespace = &namespace
-
+	event.Metadata.Name = secret.Metadata.Name
+	event.Metadata.Namespace = secret.Metadata.Namespace
 	event.Metadata.CreationTimestamp = new(metav1.Time)
 	event.Metadata.CreationTimestamp.Seconds = &secs
 
+	event.Type = &eventType
+	event.Action = &action
+	event.Reason = &reason
+	event.Count = &count
+
+	event.FirstTimestamp.Seconds = &secs
+	event.LastTimestamp.Seconds = &secs
+
 	event.InvolvedObject = new(corev1.ObjectReference)
-	event.InvolvedObject.Namespace = &namespace
+	event.InvolvedObject.Namespace = secret.Metadata.Namespace
 	event.InvolvedObject.Kind = &kind
 
-	// event.Metadata.Labels = secret.Metadata.Labels
-	log.Info().Msgf(" Starting Function")
-
-	// event.EventTime = new(metav1.MicroTime)
-	// event.EventTime.Seconds = &secs
-
-	event.Action = &action
-	// event.Note = &note
+	event.EventTime = new(metav1.MicroTime)
+	event.EventTime.Seconds = &secs
 
 	err = kubeClient.Create(context.Background(), event)
-    // apiErr, ok := err.(*k8s.APIError)
-		// Resource already exists. Carry on.
-		// if apiErr.Code == http.StatusConflict {
-		// 	return nil
-		// }
-	log.Info().Msgf("Api Error %v",err)
 
-
-	// if err != nil {
-	// 	log.Info().Msgf("Error happened...")
-	// 	log.Error().Err(err)
-	// 	return err
-	// }
-	log.Info().Msgf("Ending Function")
-
+	log.Info().Msgf("Event %v.%v - has been created successfully...", *event.Metadata.Name, *event.Metadata.Namespace)
 	return
 }
 
 func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator string) (status string, err error) {
 
 	status = "failed"
-
 	if &secret != nil && &secret.Metadata != nil && &secret.Metadata.Annotations != nil {
 	
 		desiredState := getDesiredSecretState(secret)
 		currentState := getCurrentSecretState(secret)
-		// event := new(eventsv1beta1.Event)
-
+		
 		status, err = makeSecretChanges(kubeClient, secret, initiator, desiredState, currentState)
-		//err = postEventAboutStatus(kubeClient, event, status, "The reason", "Warning")
+		if status == "failed" {
+			err = postEventAboutStatus(kubeClient,secret, "Warning", strings.Title(status), "Letsencrypt Certificate has been created failed", "Secret")
+			return
+		}
+		err = postEventAboutStatus(kubeClient,secret, "Normal", strings.Title(status), "Letsencrypt Certificate has been created successfully.", "Secret")
 		return
 	}
 
