@@ -534,7 +534,10 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	event.EventTime.Seconds = &secs
 
 	err = kubeClient.Create(context.Background(), event)
-
+	if err != null {
+		log.Info().Msgf("Event Error: ", err)
+		return
+	}
 	log.Info().Msgf("Event %v.%v - has been created successfully...", *event.Metadata.Name, *event.Metadata.Namespace)
 	return
 }
