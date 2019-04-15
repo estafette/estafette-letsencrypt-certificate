@@ -473,12 +473,16 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 	return status, nil
 }
 
-func isEventExist(kubeClient *k8s.Client, namespace string, name string, event *corev1.Event ) (err error){
+func isEventExist(kubeClient *k8s.Client, namespace string, name string, event *corev1.Event ) (exist bool,err error){
 	err = kubeClient.Get(context.Background(), namespace, name, event)
-	if err != nil {
-		return err
+	exist = true
+	if apiErr, ok := err.(*k8s.APIError); ok {
+		if apiErr.Code == http.StatusNotFound {
+			exist = false
+			return exist,nil
+		}
 	}
-	return nil
+	return exist,nil
 }
 
 func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventType string, action string, reason string, kind string )(err error){
@@ -487,8 +491,9 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	secs := int64(now.Unix())
 	count := int32(1)
 	var eventResp corev1.Event
-	err = isEventExist(kubeClient, *secret.Metadata.Namespace, *secret.Metadata.Name, &eventResp)
-	if err == nil {
+	var exist bool
+	exist, err = isEventExist(kubeClient, *secret.Metadata.Namespace, *secret.Metadata.Name, &eventResp)
+	if exist {
 		log.Info().Msgf("isEventExist is getting an err %v", err)
 		count = *eventResp.Count+ 1
 		eventResp.Type = &eventType
@@ -515,7 +520,10 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	event.Reason = &reason
 	event.Count = &count
 
+	event.FirstTimestamp = new(metav1.Time)
 	event.FirstTimestamp.Seconds = &secs
+
+	event.LastTimestamp = new(metav1.Time)
 	event.LastTimestamp.Seconds = &secs
 
 	event.InvolvedObject = new(corev1.ObjectReference)
