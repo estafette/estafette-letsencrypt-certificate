@@ -77,7 +77,6 @@ func init() {
 }
 
 func main() {
-
 	// parse command line parameters
 	flag.Parse()
 
@@ -483,14 +482,19 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *corev1.Event, action st
 
 	now := time.Now()
 	secs := int64(now.Unix())
-	name := "letsencryptevent"
-	namespace := "estafette"
+	name := string("letsencryptevent")
+	namespace := string("estafette")
+	kind := string("Secret")
 	event.Metadata = new(metav1.ObjectMeta)
 	event.Metadata.Name = &name
 	event.Metadata.Namespace = &namespace
 
 	event.Metadata.CreationTimestamp = new(metav1.Time)
 	event.Metadata.CreationTimestamp.Seconds = &secs
+
+	event.InvolvedObject = new(corev1.ObjectReference)
+	event.InvolvedObject.Namespace = &namespace
+	event.InvolvedObject.Kind = &kind
 
 	// event.Metadata.Labels = secret.Metadata.Labels
 	log.Info().Msgf(" Starting Function")
