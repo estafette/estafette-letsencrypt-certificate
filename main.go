@@ -31,7 +31,6 @@ import (
 
 	"github.com/ericchiang/k8s"
 	corev1 "github.com/ericchiang/k8s/apis/core/v1"
-	eventsv1beta1 "github.com/ericchiang/k8s/apis/events/v1beta1"
 	metav1 "github.com/ericchiang/k8s/apis/meta/v1"
 )
 
@@ -120,7 +119,7 @@ func main() {
 		log.Fatal().Err(err)
 	}
 	log.Info().Msg("Creating Event...")
-	event := &eventsv1beta1.Event{}
+	event := new(corev1.Event)
 	err = postEventAboutStatus(client, event, "EventAdded", "The reason", "Warning")
 
 	// start prometheus
@@ -480,7 +479,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 	return status, nil
 }
 
-func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, action string, reason string, note string )(err error){
+func postEventAboutStatus(kubeClient *k8s.Client, event *corev1.Event, action string, reason string, note string )(err error){
 
 	now := time.Now()
 	secs := int64(now.Unix())
@@ -496,11 +495,11 @@ func postEventAboutStatus(kubeClient *k8s.Client, event *eventsv1beta1.Event, ac
 	// event.Metadata.Labels = secret.Metadata.Labels
 	log.Info().Msgf(" Starting Function")
 
-	event.EventTime = new(metav1.MicroTime)
-	event.EventTime.Seconds = &secs
+	// event.EventTime = new(metav1.MicroTime)
+	// event.EventTime.Seconds = &secs
 
 	event.Action = &action
-	event.Note = &note
+	// event.Note = &note
 
 	err = kubeClient.Create(context.Background(), event)
     // apiErr, ok := err.(*k8s.APIError)

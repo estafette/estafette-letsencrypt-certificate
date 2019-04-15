@@ -284,7 +284,6 @@ func newClient(cluster Cluster, user AuthInfo, namespace string) (*Client, error
 			return nil, fmt.Errorf("load token file: %v", err)
 		}
 		token = string(data)
-		fmt.Println(user.Token)
 	}
 
 	transport := &http.Transport{
@@ -479,7 +478,7 @@ func (c *Client) do(ctx context.Context, verb, url string, req, resp interface{}
 
 	respCT := re.Header.Get("Content-Type")
 	if err := checkStatusCode(respCT, re.StatusCode, respBody); err != nil {
-		return fmt.Errorf("%v %v", err, url)
+		return err
 	}
 	if resp != nil {
 		if err := unmarshal(respBody, respCT, resp); err != nil {
