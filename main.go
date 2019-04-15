@@ -485,7 +485,7 @@ func isEventExist(kubeClient *k8s.Client, namespace string, name string, event *
 	return exist,nil
 }
 
-func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventType string, action string, reason string, kind string )(err error){
+func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventType string, action string, reason string, kind string, reportingController string, reportingInstance string)(err error){
 	log.Info().Msgf(" Starting Function")
 	now := time.Now()
 	secs := int64(now.Unix())
@@ -533,6 +533,9 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	event.EventTime = new(metav1.MicroTime)
 	event.EventTime.Seconds = &secs
 
+	event.ReportingController = &reportingController
+	event.ReportingInstance = &reportingInstance
+
 	err = kubeClient.Create(context.Background(), event)
 	if err != nil {
 		log.Info().Msgf("Event Error: %v ", err)
@@ -552,10 +555,10 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 		
 		status, err = makeSecretChanges(kubeClient, secret, initiator, desiredState, currentState)
 		if status == "failed" {
-			err = postEventAboutStatus(kubeClient,secret, "Warning", strings.Title(status), "Letsencrypt Certificate has been created failed", "Secret")
+			err = postEventAboutStatus(kubeClient,secret, "Warning", strings.Title(status), "Letsencrypt Certificate has been created failed", "Secret","estafette.io/letsencrypt-certificate", "estafette-letsencrypt-certificate-9fdc7f864")
 			return
 		}
-		err = postEventAboutStatus(kubeClient,secret, "Normal", strings.Title(status), "Letsencrypt Certificate has been created successfully.", "Secret")
+		err = postEventAboutStatus(kubeClient,secret, "Normal", strings.Title(status), "Letsencrypt Certificate has been created successfully.", "Secret","estafette.io/letsencrypt-certificate", "estafette-letsencrypt-certificate-9fdc7f864" )
 		return
 	}
 
