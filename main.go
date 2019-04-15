@@ -488,19 +488,19 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	count := int32(1)
 	var eventResp corev1.Event
 	err = isEventExist(kubeClient, *secret.Metadata.Namespace, *secret.Metadata.Name, &eventResp)
-	if err != nil {
+	if err == nil {
 		log.Info().Msgf("isEventExist is getting an err %v", err)
-		// count = *eventResp.Count+ 1
-		// eventResp.Type = &eventType
-		// eventResp.Action = &action
-		// eventResp.Reason = &reason
-		// eventResp.Count = &count
-		// eventResp.LastTimestamp.Seconds = &secs
-		// err = kubeClient.Update(context.Background(), &eventResp)
-		// if err != nil {
-		// 	log.Error().Msgf("Event %v.%v - Update Event failed.\n\t%s", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace, err.Error())
-		// }
-		// log.Info().Msgf("Event %v.%v - has been updated successfully...", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace)
+		count = *eventResp.Count+ 1
+		eventResp.Type = &eventType
+		eventResp.Action = &action
+		eventResp.Reason = &reason
+		eventResp.Count = &count
+		eventResp.LastTimestamp.Seconds = &secs
+		err = kubeClient.Update(context.Background(), &eventResp)
+		if err != nil {
+			log.Error().Msgf("Event %v.%v - Update Event failed.\n\t%s", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace, err.Error())
+		}
+		log.Info().Msgf("Event %v.%v - has been updated successfully...", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace)
 		return
 	}
 	event := new(corev1.Event)
