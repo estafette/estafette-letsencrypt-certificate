@@ -533,7 +533,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	event.EventTime = new(metav1.MicroTime)
 	event.EventTime.Seconds = &secs
 
-	event.ReportingController = &reportingController
+	event.ReportingComponent = &reportingController
 	event.ReportingInstance = &reportingInstance
 
 	err = kubeClient.Create(context.Background(), event)
