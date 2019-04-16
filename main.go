@@ -73,6 +73,8 @@ var (
 func init() {
 	// metrics have to be registered to be exposed
 	prometheus.MustRegister(certificateTotals)
+	k8s.Register("", "v1", "events", true, &corev1.Event{})
+    k8s.RegisterList("", "v1", "events", true, &corev1.EventList{})
 }
 
 func main() {
@@ -494,7 +496,6 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	var exist bool
 	exist, err = isEventExist(kubeClient, *secret.Metadata.Namespace, *secret.Metadata.Name, &eventResp)
 	if exist {
-		log.Info().Msgf("isEventExist is getting an err %v", err)
 		count = *eventResp.Count+ 1
 		eventResp.Type = &eventType
 		eventResp.Action = &action
@@ -503,7 +504,8 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 		eventResp.LastTimestamp.Seconds = &secs
 		err = kubeClient.Update(context.Background(), &eventResp)
 		if err != nil {
-			log.Error().Msgf("Event %v.%v - Update Event failed.\n\t%s", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace, err.Error())
+			log.Error().Msgf("Event %v.%v - Updating Event has an error.\n\t%s", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace, err.Error())
+			return err
 		}
 		log.Info().Msgf("Event %v.%v - has been updated successfully...", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace)
 		return
@@ -538,8 +540,8 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 
 	err = kubeClient.Create(context.Background(), event)
 	if err != nil {
-		log.Info().Msgf("Event Error: %v ", err)
-		return
+		log.Error().Msgf("Event %v.%v - Creating Event has an error.\n\t%s", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace, err.Error())
+		return err
 	}
 	log.Info().Msgf("Event %v.%v - has been created successfully...", *event.Metadata.Name, *event.Metadata.Namespace)
 	return
