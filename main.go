@@ -551,8 +551,9 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	}
 
 	err = kubeClient.Create(context.Background(), event)
+
 	if err != nil {
-		log.Error().Msgf("Event %v.%v - Creating Event has an error.\n\t%s", *event.Metadata.Name, *event.Metadata.Namespace, err.Error())
+		log.Error().Msgf("Event %v.%v - Creating Event has an error. %s", *event.Metadata.Name, *event.Metadata.Namespace, err.Error())
 		return err
 	}
 
@@ -562,6 +563,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 
 func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator string) (status string, err error) {
 	status = "failed"
+
 	if &secret != nil && &secret.Metadata != nil && &secret.Metadata.Annotations != nil {
 
 		desiredState := getDesiredSecretState(secret)
@@ -576,6 +578,7 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 		err = postEventAboutStatus(kubeClient, secret, "Normal", strings.Title(status), "Letsencrypt Certificate has been created successfully.", "Secret", "estafette.io/letsencrypt-certificate", "estafette-letsencrypt-certificate-9fdc7f864")
 		return
 	}
+
 	status = "skipped"
 	return status, nil
 }
