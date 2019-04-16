@@ -552,7 +552,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 
 	err = kubeClient.Create(context.Background(), event)
 	if err != nil {
-		log.Error().Msgf("Event %v.%v - Creating Event has an error.\n\t%s", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace, err.Error())
+		log.Error().Msgf("Event %v.%v - Creating Event has an error.\n\t%s", *event.Metadata.Name, *event.Metadata.Namespace, err.Error())
 		return err
 	}
 
