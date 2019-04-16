@@ -39,7 +39,7 @@ stages:
     - estafette
     when:
       status == 'succeeded' &&
-      branch == 'master' &&
+      branch == 'emit-kubernets-events-from-estaffete' &&
       server == 'gocd'
 
   slack-notify:
