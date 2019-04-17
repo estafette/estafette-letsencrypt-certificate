@@ -491,7 +491,7 @@ func isEventExist(kubeClient *k8s.Client, namespace string, name string, event *
 	return "found", nil
 }
 
-func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventType string, action string, reason string, kind string, reportingController string, reportingInstance string) (err error) {
+func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventType string, action string, reason string, message string, kind string, reportingController string, reportingInstance string) (err error) {
 	now := time.Now().UTC()
 	secs := int64(now.Unix())
 	count := int32(1)
@@ -535,10 +535,11 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 		LastTimestamp: &metav1.Time{
 			Seconds: &secs,
 		},
-		Type:   &eventType,
-		Action: &action,
-		Reason: &reason,
-		Count:  &count,
+		Type:    &eventType,
+		Action:  &action,
+		Reason:  &reason,
+		Message: &message,
+		Count:   &count,
 		InvolvedObject: &corev1.ObjectReference{
 			Namespace: secret.Metadata.Namespace,
 			Kind:      &kind,
@@ -571,11 +572,11 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 		status, err = makeSecretChanges(kubeClient, secret, initiator, desiredState, currentState)
 
 		if status == "failed" {
-			err = postEventAboutStatus(kubeClient, secret, "Warning", strings.Title(status), "Letsencrypt Certificate has been created failed", "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
+			err = postEventAboutStatus(kubeClient, secret, "Warning", strings.Title(status), "FailedObtain", fmt.Sprintf("Certificate for secret %v obtaining failed", *secret.Metadata.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
 			return
 		}
 
-		err = postEventAboutStatus(kubeClient, secret, "Normal", strings.Title(status), "Letsencrypt Certificate has been created successfully.", "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
+		err = postEventAboutStatus(kubeClient, secret, "Normal", strings.Title(status), "SuccessfulObtain", fmt.Sprintf("Certificate for secret %v has been obtained succesfully", *secret.Metadata.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
 		return
 	}
 
