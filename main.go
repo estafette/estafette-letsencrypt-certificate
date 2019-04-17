@@ -571,11 +571,11 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 		status, err = makeSecretChanges(kubeClient, secret, initiator, desiredState, currentState)
 
 		if status == "failed" {
-			err = postEventAboutStatus(kubeClient, secret, "Warning", strings.Title(status), "Letsencrypt Certificate has been created failed", "Secret", "estafette.io/letsencrypt-certificate", "estafette-letsencrypt-certificate-9fdc7f864")
+			err = postEventAboutStatus(kubeClient, secret, "Warning", strings.Title(status), "Letsencrypt Certificate has been created failed", "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
 			return
 		}
 
-		err = postEventAboutStatus(kubeClient, secret, "Normal", strings.Title(status), "Letsencrypt Certificate has been created successfully.", "Secret", "estafette.io/letsencrypt-certificate", "estafette-letsencrypt-certificate-9fdc7f864")
+		err = postEventAboutStatus(kubeClient, secret, "Normal", strings.Title(status), "Letsencrypt Certificate has been created successfully.", "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
 		return
 	}
 
