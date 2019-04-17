@@ -508,6 +508,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 		eventResp.Type = &eventType
 		eventResp.Action = &action
 		eventResp.Reason = &reason
+		eventResp.Message = &message
 		eventResp.Count = &count
 		eventResp.LastTimestamp.Seconds = &secs
 		err = kubeClient.Update(context.Background(), &eventResp)
@@ -528,6 +529,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 			CreationTimestamp: &metav1.Time{
 				Seconds: &secs,
 			},
+			Labels: secret.Metadata.Labels,
 		},
 		FirstTimestamp: &metav1.Time{
 			Seconds: &secs,
