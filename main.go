@@ -495,6 +495,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	now := time.Now().UTC()
 	secs := int64(now.Unix())
 	count := int32(1)
+	name := fmt.Sprintf("%v-%v", *secret.Metadata.Name, action)
 	var eventResp corev1.Event
 	var exist string
 	exist, err = isEventExist(kubeClient, *secret.Metadata.Namespace, *secret.Metadata.Name, &eventResp)
@@ -524,7 +525,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 
 	event := &corev1.Event{
 		Metadata: &metav1.ObjectMeta{
-			Name:      secret.Metadata.Name,
+			Name:      &name,
 			Namespace: secret.Metadata.Namespace,
 			CreationTimestamp: &metav1.Time{
 				Seconds: &secs,
@@ -577,9 +578,10 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 			err = postEventAboutStatus(kubeClient, secret, "Warning", strings.Title(status), "FailedObtain", fmt.Sprintf("Certificate for secret %v obtaining failed", *secret.Metadata.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
 			return
 		}
-
-		err = postEventAboutStatus(kubeClient, secret, "Normal", strings.Title(status), "SuccessfulObtain", fmt.Sprintf("Certificate for secret %v has been obtained succesfully", *secret.Metadata.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
-		return
+		if status == "succeeded" {
+			err = postEventAboutStatus(kubeClient, secret, "Normal", strings.Title(status), "SuccessfulObtain", fmt.Sprintf("Certificate for secret %v has been obtained succesfully", *secret.Metadata.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
+			return
+		}
 	}
 
 	status = "skipped"
