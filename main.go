@@ -495,7 +495,8 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	now := time.Now().UTC()
 	secs := int64(now.Unix())
 	count := int32(1)
-	name := fmt.Sprintf("%v-%v", *secret.Metadata.Name, action)
+	eventName := fmt.Sprintf("%v-%v", *secret.Metadata.Name, action)
+	eventSource := os.Getenv("HOSTNAME")
 	var eventResp corev1.Event
 	var exist string
 	exist, err = isEventExist(kubeClient, *secret.Metadata.Namespace, *secret.Metadata.Name, &eventResp)
@@ -525,7 +526,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 
 	event := &corev1.Event{
 		Metadata: &metav1.ObjectMeta{
-			Name:      &name,
+			Name:      &eventName,
 			Namespace: secret.Metadata.Namespace,
 			CreationTimestamp: &metav1.Time{
 				Seconds: &secs,
@@ -543,6 +544,9 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 		Reason:  &reason,
 		Message: &message,
 		Count:   &count,
+		Source: &corev1.EventSource{
+			Component: &eventSource,
+		},
 		InvolvedObject: &corev1.ObjectReference{
 			Namespace: secret.Metadata.Namespace,
 			Kind:      &kind,
