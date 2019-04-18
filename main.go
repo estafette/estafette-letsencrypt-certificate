@@ -499,7 +499,7 @@ func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventTy
 	eventSource := os.Getenv("HOSTNAME")
 	var eventResp corev1.Event
 	var exist string
-	exist, err = isEventExist(kubeClient, *secret.Metadata.Namespace, *secret.Metadata.Name, &eventResp)
+	exist, err = isEventExist(kubeClient, *secret.Metadata.Namespace, eventName, &eventResp)
 
 	if exist == "error" {
 		return err
