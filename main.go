@@ -404,7 +404,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		}
 
 		// if obtaining secret failed exit and retry after more than 15 minutes
-		if err != nil {
+		if err != nil || certificates == nil {
 			log.Error().Err(err).Msgf("Could not obtain certificates for domains %v", hostnames)
 			return status, err
 		}
