@@ -375,13 +375,13 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		}
 
 		// clean up acme challenge records in advance
-		for _, hostname := range hostnames {
-			log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
-			err = cloudflareProvider.CleanUp(hostname, "", "123d==")
-			if err != nil {
-				log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
-			}
-		}
+		// for _, hostname := range hostnames {
+		// 	log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+		// 	err = cloudflareProvider.CleanUp(hostname, "", "123d==")
+		// 	if err != nil {
+		// 		log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+		// 	}
+		// }
 
 		// set challenge provider
 		legoClient.Challenge.SetDNS01Provider(cloudflareProvider)
@@ -405,13 +405,13 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		}
 
 		// clean up acme challenge records afterwards
-		for _, hostname := range hostnames {
-			log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
-			err = cloudflareProvider.CleanUp(hostname, "", "123d==")
-			if err != nil {
-				log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
-			}
-		}
+		// for _, hostname := range hostnames {
+		// 	log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+		// 	err = cloudflareProvider.CleanUp(hostname, "", "123d==")
+		// 	if err != nil {
+		// 		log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+		// 	}
+		// }
 
 		// update the secret
 		currentState = desiredState
