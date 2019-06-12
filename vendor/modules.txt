@@ -16,7 +16,7 @@ github.com/ericchiang/k8s/apis/apiextensions/v1beta1
 github.com/ericchiang/k8s/apis/resource
 github.com/ericchiang/k8s/runtime/schema
 github.com/ericchiang/k8s/util/intstr
-# github.com/go-acme/lego v2.6.0+incompatible
+# github.com/go-acme/lego v2.4.0+incompatible
 github.com/go-acme/lego/certificate
 github.com/go-acme/lego/lego
 github.com/go-acme/lego/providers/dns/cloudflare

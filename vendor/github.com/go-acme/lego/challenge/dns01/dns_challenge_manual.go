@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"time"
 )
 
 const (
@@ -50,10 +49,4 @@ func (*DNSProviderManual) CleanUp(domain, token, keyAuth string) error {
 	fmt.Printf(dnsTemplate+"\n", fqdn, DefaultTTL, "...")
 
 	return nil
-}
-
-// Sequential All DNS challenges for this provider will be resolved sequentially.
-// Returns the interval between each iteration.
-func (d *DNSProviderManual) Sequential() time.Duration {
-	return DefaultPropagationTimeout
 }
