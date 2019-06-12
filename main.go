@@ -394,6 +394,16 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		}
 		certificates, err := legoClient.Certificate.Obtain(request)
 
+		// if obtaining secret failed exit and retry after more than 15 minutes
+		if err != nil {
+			log.Error().Err(err).Msgf("Could not obtain certificates for domains %v due to error", hostnames)
+			return status, err
+		}
+		if certificates == nil {
+			log.Error().Msgf("Could not obtain certificates for domains %v, certificates are empty", hostnames)
+			return status, err
+		}
+
 		// clean up acme challenge records afterwards
 		for _, hostname := range hostnames {
 			log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
@@ -401,12 +411,6 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 			if err != nil {
 				log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
 			}
-		}
-
-		// if obtaining secret failed exit and retry after more than 15 minutes
-		if err != nil || certificates == nil {
-			log.Error().Err(err).Msgf("Could not obtain certificates for domains %v", hostnames)
-			return status, err
 		}
 
 		// update the secret
