@@ -1,0 +1,15 @@
+secret:
+  cloudflare:
+    email: cloudflare-email
+    key: cloudflare-key
+  letsencrypt:
+    json: letsencrypt-json
+    key: letsencrypt-key
+resources:
+  requests:
+    cpu: 150m
+    memory: 819Mi
+  limits:
+    cpu: 350m
+    memory: 819Mi
+affinity: {}
