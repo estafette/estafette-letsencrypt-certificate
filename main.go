@@ -298,6 +298,13 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 			return status, err
 		}
 
+		// reload secret to avoid object has been modified error
+		err = kubeClient.Get(context.Background(), *secret.Metadata.Namespace, *secret.Metadata.Name, secret)
+		if err != nil {
+			log.Error().Err(err)
+			return status, err
+		}
+
 		// error if any of the host names is longer than 64 bytes
 		hostnames := strings.Split(desiredState.Hostnames, ",")
 		for _, hostname := range hostnames {
