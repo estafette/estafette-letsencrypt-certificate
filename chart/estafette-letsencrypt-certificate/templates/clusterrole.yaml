@@ -9,6 +9,7 @@ rules:
   resources:
   - secrets
   verbs:
+  - get
   - list
   - update
   - watch
