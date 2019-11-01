@@ -298,13 +298,6 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 			return status, err
 		}
 
-		// reload secret to avoid object has been modified error
-		err = kubeClient.Get(context.Background(), *secret.Metadata.Namespace, *secret.Metadata.Name, secret)
-		if err != nil {
-			log.Error().Err(err)
-			return status, err
-		}
-
 		// error if any of the host names is longer than 64 bytes
 		hostnames := strings.Split(desiredState.Hostnames, ",")
 		for _, hostname := range hostnames {
@@ -401,6 +394,13 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		// 		log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
 		// 	}
 		// }
+
+		// reload secret to avoid object has been modified error
+		err = kubeClient.Get(context.Background(), *secret.Metadata.Namespace, *secret.Metadata.Name, secret)
+		if err != nil {
+			log.Error().Err(err)
+			return status, err
+		}
 
 		// update the secret
 		currentState = desiredState
