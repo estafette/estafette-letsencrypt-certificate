@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	stdlog "log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -19,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
+	foundation "github.com/estafette/estafette-foundation"
 	"github.com/rs/zerolog/log"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -48,6 +47,8 @@ type LetsEncryptCertificateState struct {
 }
 
 var (
+	appgroup  string
+	app       string
 	version   string
 	branch    string
 	revision  string
@@ -82,27 +83,8 @@ func main() {
 	// parse command line parameters
 	flag.Parse()
 
-	// log as severity for stackdriver logging to recognize the level
-	zerolog.LevelFieldName = "severity"
-
-	// set some default fields added to all logs
-	log.Logger = zerolog.New(os.Stdout).With().
-		Timestamp().
-		Str("app", "estafette-letsencrypt-certificate").
-		Str("version", version).
-		Logger()
-
-	// use zerolog for any logs sent via standard log library
-	stdlog.SetFlags(0)
-	stdlog.SetOutput(log.Logger)
-
-	// log startup message
-	log.Info().
-		Str("branch", branch).
-		Str("revision", revision).
-		Str("buildDate", buildDate).
-		Str("goVersion", goVersion).
-		Msg("Starting estafette-letsencrypt-certificate...")
+	// configure json logging
+	foundation.InitLogging(appgroup, app, version, branch, revision, buildDate)
 
 	// create cloudflare api client
 	cfAPIKey := os.Getenv("CF_API_KEY")
@@ -581,6 +563,10 @@ func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator stri
 		desiredState := getDesiredSecretState(secret)
 		currentState := getCurrentSecretState(secret)
 		status, err = makeSecretChanges(kubeClient, secret, initiator, desiredState, currentState)
+
+		if err != nil {
+			log.Error().Err(err).Msgf("[%v] Secret %v.%v - Error occurred...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		}
 
 		if status == "failed" {
 			err = postEventAboutStatus(kubeClient, secret, "Warning", strings.Title(status), "FailedObtain", fmt.Sprintf("Certificate for secret %v obtaining failed", *secret.Metadata.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
