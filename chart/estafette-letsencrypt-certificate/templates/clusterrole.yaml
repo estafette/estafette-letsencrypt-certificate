@@ -9,10 +9,16 @@ rules:
   resources:
   - secrets
   verbs:
+  - create
   - get
   - list
   - update
   - watch
+- apiGroups: [""] # "" indicates the core API group
+  resources:
+  - namespaces
+  verbs:
+  - list
 - apiGroups: [""] # "" indicates the core/v1 API group
   resources:
   - events

@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -35,15 +36,18 @@ import (
 
 const annotationLetsEncryptCertificate string = "estafette.io/letsencrypt-certificate"
 const annotationLetsEncryptCertificateHostnames string = "estafette.io/letsencrypt-certificate-hostnames"
+const annotationLetsEncryptCertificateCopyToAllNamespaces string = "estafette.io/letsencrypt-certificate-copy-to-all-namespaces"
+const annotationLetsEncryptCertificateLinkedSecret string = "estafette.io/letsencrypt-certificate-linked-secret"
 
 const annotationLetsEncryptCertificateState string = "estafette.io/letsencrypt-certificate-state"
 
 // LetsEncryptCertificateState represents the state of the secret with respect to Let's Encrypt certificates
 type LetsEncryptCertificateState struct {
-	Enabled     string `json:"enabled"`
-	Hostnames   string `json:"hostnames"`
-	LastRenewed string `json:"lastRenewed"`
-	LastAttempt string `json:"lastAttempt"`
+	Enabled             string `json:"enabled"`
+	Hostnames           string `json:"hostnames"`
+	CopyToAllNamespaces bool   `json:"copyToAllNamespaces"`
+	LastRenewed         string `json:"lastRenewed"`
+	LastAttempt         string `json:"lastAttempt"`
 }
 
 var (
@@ -224,6 +228,13 @@ func getDesiredSecretState(secret *corev1.Secret) (state LetsEncryptCertificateS
 	state.Hostnames, ok = secret.Metadata.Annotations[annotationLetsEncryptCertificateHostnames]
 	if !ok {
 		state.Hostnames = ""
+	}
+	copyToAllNamespacesValue, ok := secret.Metadata.Annotations[annotationLetsEncryptCertificateCopyToAllNamespaces]
+	if ok {
+		b, err := strconv.ParseBool(copyToAllNamespacesValue)
+		if err == nil {
+			state.CopyToAllNamespaces = b
+		}
 	}
 
 	return
@@ -461,12 +472,79 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 
 		log.Info().Msgf("[%v] Secret %v.%v - Certificates have been stored in secret successfully...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 
+		if desiredState.CopyToAllNamespaces {
+			// copy to other namespaces if annotation is set to true
+			err = copySecretToAllNamespaces(kubeClient, secret, initiator)
+			if err != nil {
+				return status, err
+			}
+		}
+
 		return status, nil
 	}
 
 	status = "skipped"
 
 	return status, nil
+}
+
+func copySecretToAllNamespaces(kubeClient *k8s.Client, secret *corev1.Secret, initiator string) (err error) {
+
+	// get all namespaces
+	var namespaces corev1.NamespaceList
+	err = kubeClient.List(context.Background(), k8s.AllNamespaces, &namespaces)
+
+	// loop namespaces
+	for _, ns := range namespaces.GetItems() {
+		nsName := ns.GetMetadata().GetName()
+		if nsName == secret.Metadata.GetNamespace() {
+			continue
+		}
+
+		log.Info().Msgf("[%v] Secret %v.%v - Copying secret to namespace %v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, nsName)
+
+		// check if secret with same name already exists
+		var secretInNamespace corev1.Secret
+		err = kubeClient.Get(context.Background(), nsName, secret.Metadata.GetName(), &secretInNamespace)
+
+		if apiErr, ok := err.(*k8s.APIError); ok {
+			if apiErr.Code == http.StatusNotFound {
+				// doesn't exist, create new secret
+				secretInNamespace = corev1.Secret{
+					Metadata: &metav1.ObjectMeta{
+						Name:      secret.Metadata.Name,
+						Namespace: &nsName,
+						Labels:    secret.Metadata.GetLabels(),
+						Annotations: map[string]string{
+							annotationLetsEncryptCertificateLinkedSecret: fmt.Sprintf("%v/%v", secret.Metadata.GetNamespace(), secret.Metadata.GetName()),
+							annotationLetsEncryptCertificateState:        secret.GetMetadata().GetAnnotations()[annotationLetsEncryptCertificateState],
+						},
+					},
+					Data: secret.GetData(),
+				}
+
+				err = kubeClient.Create(context.Background(), &secretInNamespace)
+				if err != nil {
+					return err
+				}
+				continue
+			}
+
+			// other type of error
+			return err
+		}
+
+		// already exists, update data in secret
+		secretInNamespace.Data = secret.GetData()
+		secretInNamespace.Metadata.Annotations[annotationLetsEncryptCertificateState] = secret.GetMetadata().GetAnnotations()[annotationLetsEncryptCertificateState]
+
+		err = kubeClient.Update(context.Background(), &secretInNamespace)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func isEventExist(kubeClient *k8s.Client, namespace string, name string, event *corev1.Event) (exist string, err error) {
