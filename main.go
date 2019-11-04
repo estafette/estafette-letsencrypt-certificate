@@ -497,7 +497,7 @@ func copySecretToAllNamespaces(kubeClient *k8s.Client, secret *corev1.Secret, in
 	// loop namespaces
 	for _, ns := range namespaces.GetItems() {
 		nsName := ns.GetMetadata().GetName()
-		if nsName == secret.Metadata.GetNamespace() {
+		if nsName == secret.Metadata.GetNamespace() || ns.GetStatus().GetPhase() != "Active" {
 			continue
 		}
 
