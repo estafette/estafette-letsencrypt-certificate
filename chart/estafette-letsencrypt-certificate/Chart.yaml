@@ -1,9 +1,0 @@
-apiVersion: v1
-appVersion: "1.1.89"
-description: Estafette LetsEncrypt certificate controller
-name: estafette-letsencrypt-certificate
-version: 0.1.1
-source:
-- https://github.com/estafette/estafette-letsencrypt-certificate
-maintainers:
-  - name: Estafette
