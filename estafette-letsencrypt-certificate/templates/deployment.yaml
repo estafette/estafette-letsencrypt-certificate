@@ -11,12 +11,12 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app: {{ include "estafette-letsencrypt-certificate.fullname" . }}
+      app.kubernetes.io/name: {{ include "estafette-letsencrypt-certificate.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app: {{ include "estafette-letsencrypt-certificate.fullname" . }}
-        version: {{ .Chart.AppVersion | quote }}
+{{ include "estafette-letsencrypt-certificate.labels" . | indent 8 }}
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9101"
@@ -38,14 +38,17 @@ spec:
             - name: "CF_API_EMAIL"
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "estafette-cloudflare-dns.fullname" . }}
+                  name: {{ include "estafette-letsencrypt-certificate.fullname" . }}
                   key: cloudflareApiEmail
             - name: "CF_API_KEY"
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "estafette-cloudflare-dns.fullname" . }}
+                  name: {{ include "estafette-letsencrypt-certificate.fullname" . }}
                   key: cloudflareApiKey
-            {{- toYaml .Values.extraEnv | nindent 12 }}
+            {{- range $key, $value := .Values.extraEnv }}
+            - name: {{ $key }}
+              value: {{ $value }}
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 9101

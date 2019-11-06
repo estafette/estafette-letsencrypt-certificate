@@ -35,12 +35,16 @@ Create chart name and version as used by the chart label.
 Common labels
 */}}
 {{- define "estafette-letsencrypt-certificate.labels" -}}
-app: {{ include "estafette-letsencrypt-certificate.name" . }}
+app.kubernetes.io/name: {{ include "estafette-letsencrypt-certificate.name" . }}
 helm.sh/chart: {{ include "estafette-letsencrypt-certificate.chart" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if .Chart.AppVersion }}
-version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- range $key, $value := .Values.extraLabels }}
+{{ $key }}: {{ $value }}
+{{- end }}
 {{- end -}}
 
 {{/*
