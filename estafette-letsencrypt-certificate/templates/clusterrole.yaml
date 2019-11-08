@@ -8,18 +8,23 @@ metadata:
 rules:
 - apiGroups: [""] # "" indicates the core API group
   resources:
-  - nodes
+  - secrets
   verbs:
+  - create
   - get
   - list
-  - patch
   - update
-  - delete
+  - watch
 - apiGroups: [""] # "" indicates the core API group
   resources:
-  - pods
+  - namespaces
   verbs:
-  - delete
-  - get
   - list
+- apiGroups: [""] # "" indicates the core/v1 API group
+  resources:
+  - events
+  verbs:
+  - create
+  - get
+  - update
 {{- end -}}
