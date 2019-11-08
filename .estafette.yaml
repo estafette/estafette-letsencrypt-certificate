@@ -63,10 +63,10 @@ stages:
     action: test
     values: |-
       secret:
-        letsencryptAccountJson='{}'
-        letsencryptAccountKey=abc
-        cloudflareApiEmail=bot@estafette.io
-        cloudflareApiKey=abc
+        letsencryptAccountJson: {}
+        letsencryptAccountKey: abc
+        cloudflareApiEmail: bot@estafette.io
+        cloudflareApiKey: abc
 
   clone-charts-repo:
     image: extensions/git-clone:dev
