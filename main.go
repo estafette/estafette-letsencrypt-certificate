@@ -10,13 +10,11 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"os/signal"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	foundation "github.com/estafette/estafette-foundation"
@@ -119,11 +117,7 @@ func main() {
 	}()
 
 	// define channel used to gracefully shutdown the application
-	gracefulShutdown := make(chan os.Signal)
-
-	signal.Notify(gracefulShutdown, syscall.SIGTERM, syscall.SIGINT)
-
-	waitGroup := &sync.WaitGroup{}
+	gracefulShutdown, waitGroup := foundation.InitGracefulShutdownHandling()
 
 	// watch secrets for all namespaces
 	go func(waitGroup *sync.WaitGroup) {
