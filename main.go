@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -17,11 +16,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alecthomas/kingpin"
 	foundation "github.com/estafette/estafette-foundation"
 	"github.com/rs/zerolog/log"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/go-acme/lego/certificate"
 	"github.com/go-acme/lego/lego"
@@ -59,7 +58,8 @@ var (
 )
 
 var (
-	addr = flag.String("listen-address", ":9101", "The address to listen on for HTTP requests.")
+	cfAPIKey   = kingpin.Flag("cloudflare-api-key", "The API key to connect to cloudflare.").Envar("CF_API_KEY").Required().String()
+	cfAPIEmail = kingpin.Flag("cloudflare-api-email", "The API email address to connect to cloudflare.").Envar("CF_API_EMAIL").Required().String()
 
 	// seed random number
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -82,41 +82,24 @@ func init() {
 }
 
 func main() {
+
 	// parse command line parameters
-	flag.Parse()
+	kingpin.Parse()
 
 	// init log format from envvar ESTAFETTE_LOG_FORMAT
-	foundation.InitLoggingFromEnv(appgroup, app, version, branch, revision, buildDate)
+	foundation.InitLoggingFromEnv(foundation.NewApplicationInfo(appgroup, app, version, branch, revision, buildDate))
 
-	// create cloudflare api client
-	cfAPIKey := os.Getenv("CF_API_KEY")
-	if cfAPIKey == "" {
-		log.Fatal().Msg("CF_API_KEY is required. Please set CF_API_KEY environment variable to your Cloudflare API key.")
-	}
-	cfAPIEmail := os.Getenv("CF_API_EMAIL")
-	if cfAPIEmail == "" {
-		log.Fatal().Msg("CF_API_EMAIL is required. Please set CF_API_KEY environment variable to your Cloudflare API email.")
-	}
+	// init /liveness endpoint
+	foundation.InitLiveness()
 
 	// create kubernetes api client
 	client, err := k8s.NewInClusterClient()
 	if err != nil {
 		log.Fatal().Err(err)
 	}
-	// start prometheus
-	go func() {
-		log.Debug().
-			Str("port", *addr).
-			Msg("Serving Prometheus metrics...")
 
-		http.Handle("/metrics", promhttp.Handler())
+	foundation.InitMetrics()
 
-		if err := http.ListenAndServe(*addr, nil); err != nil {
-			log.Fatal().Err(err).Msg("Starting Prometheus listener failed")
-		}
-	}()
-
-	// define channel used to gracefully shutdown the application
 	gracefulShutdown, waitGroup := foundation.InitGracefulShutdownHandling()
 
 	// watch secrets for all namespaces
@@ -194,13 +177,7 @@ func main() {
 		}
 	}(waitGroup)
 
-	signalReceived := <-gracefulShutdown
-	log.Info().
-		Msgf("Received signal %v. Waiting for running tasks to finish...", signalReceived)
-
-	waitGroup.Wait()
-
-	log.Info().Msg("Shutting down...")
+	foundation.HandleGracefulShutdown(gracefulShutdown, waitGroup)
 }
 
 func applyJitter(input int) (output int) {
@@ -255,9 +232,6 @@ func getCurrentSecretState(secret *corev1.Secret) (state LetsEncryptCertificateS
 }
 
 func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator string, desiredState, currentState LetsEncryptCertificateState) (status string, err error) {
-
-	cfAPIKey := os.Getenv("CF_API_KEY")
-	cfAPIEmail := os.Getenv("CF_API_EMAIL")
 
 	status = "failed"
 
@@ -351,8 +325,8 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		// get dns challenge
 		log.Info().Msgf("[%v] Secret %v.%v - Creating cloudflare provider...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
 		cloudflareConfig := cloudflare.NewDefaultConfig()
-		cloudflareConfig.AuthEmail = cfAPIEmail
-		cloudflareConfig.AuthKey = cfAPIKey
+		cloudflareConfig.AuthEmail = *cfAPIEmail
+		cloudflareConfig.AuthKey = *cfAPIKey
 		cloudflareConfig.PropagationTimeout = 10 * time.Minute
 
 		cloudflareProvider, err := cloudflare.NewDNSProviderConfig(cloudflareConfig)
