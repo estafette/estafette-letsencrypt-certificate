@@ -22,9 +22,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/go-acme/lego/certificate"
-	"github.com/go-acme/lego/lego"
-	"github.com/go-acme/lego/providers/dns/cloudflare"
+	"github.com/go-acme/lego/v3/certificate"
+	"github.com/go-acme/lego/v3/lego"
+	"github.com/go-acme/lego/v3/providers/dns/cloudflare"
 
 	"github.com/ericchiang/k8s"
 	corev1 "github.com/ericchiang/k8s/apis/core/v1"

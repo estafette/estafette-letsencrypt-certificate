@@ -7,7 +7,7 @@ import (
 	"errors"
 	"io/ioutil"
 
-	"github.com/go-acme/lego/registration"
+	"github.com/go-acme/lego/v3/registration"
 )
 
 type LetsEncryptUser struct {
