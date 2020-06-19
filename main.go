@@ -89,7 +89,7 @@ func main() {
 	foundation.InitLoggingFromEnv(foundation.NewApplicationInfo(appgroup, app, version, branch, revision, buildDate))
 
 	// init /liveness endpoint
-	foundation.InitLivenessWithPort(5000)
+	foundation.InitLiveness()
 
 	// create kubernetes api client
 	kubeClientConfig, err := rest.InClusterConfig()
