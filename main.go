@@ -192,6 +192,68 @@ func listSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset)
 	}
 }
 
+func watchNamespaces(waitGroup *sync.WaitGroup, client *k8s.Client) {
+	// loop indefinitely
+	for {
+		log.Info().Msg("Watching for new namespaces...")
+		var namespace corev1.Namespace
+		watcher, err := client.Watch(context.Background(), k8s.AllNamespaces, &namespace, k8s.Timeout(time.Duration(300)*time.Second))
+		defer watcher.Close()
+
+		if err != nil {
+			log.Error().Err(err)
+		} else {
+			// loop indefinitely, unless it errors
+			for {
+				namespace := new(corev1.Namespace)
+				eventType, err := watcher.Next(namespace)
+				if err != nil {
+					log.Error().Err(err)
+					break
+				}
+
+				if eventType == k8s.EventAdded {
+					log.Info().Msg("Listing secrets with 'copyToAllNamespaces' for all namespaces...")
+					var secrets corev1.SecretList
+					err := client.List(context.Background(), k8s.AllNamespaces, &secrets)
+					if err != nil {
+						log.Error().Err(err)
+						continue
+					}
+					log.Info().Msgf("Cluster has %v secrets, checking for secrets with 'copyToAllNamespaces'...", len(secrets.Items))
+
+					// loop all secrets
+					for _, secret := range secrets.Items {
+						copyToAllNamespacesValue, ok := secret.Metadata.Annotations[annotationLetsEncryptCertificateCopyToAllNamespaces]
+						if ok {
+							shouldCopyToAllNamespaces, err := strconv.ParseBool(copyToAllNamespacesValue)
+							if err != nil {
+								log.Error().Err(err)
+								continue
+							}
+							if shouldCopyToAllNamespaces {
+								waitGroup.Add(1)
+								err = copySecretToNamespace(client, secret, namespace, fmt.Sprintf("ns-watcher:%v", eventType))
+								waitGroup.Done()
+
+								if err != nil {
+									log.Error().Err(err)
+									continue
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// sleep random time between 22 and 37 seconds
+		sleepTime := applyJitter(30)
+		log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
+		time.Sleep(time.Duration(sleepTime) * time.Second)
+	}
+}
+
 func applyJitter(input int) (output int) {
 
 	deviation := int(0.25 * float64(input))
