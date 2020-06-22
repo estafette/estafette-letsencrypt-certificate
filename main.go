@@ -193,14 +193,12 @@ func listSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset)
 }
 
 func watchNamespaces(waitGroup *sync.WaitGroup, client *k8s.Client) {
-
-	var namespace corev1.Namespace
-	watcher, err := client.Watch(context.Background(), k8s.AllNamespaces, &namespace, k8s.Timeout(time.Duration(300)*time.Second))
-	defer watcher.Close()
-
 	// loop indefinitely
 	for {
 		log.Info().Msg("Watching for new namespaces...")
+		var namespace corev1.Namespace
+		watcher, err := client.Watch(context.Background(), k8s.AllNamespaces, &namespace, k8s.Timeout(time.Duration(300)*time.Second))
+		defer watcher.Close()
 
 		if err != nil {
 			log.Error().Err(err)
