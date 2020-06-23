@@ -73,6 +73,9 @@ var (
 		},
 		[]string{"namespace", "status", "initiator", "type"},
 	)
+
+	// set controller Start time to watch only for newly created resources
+	controllerStartTime time.Time = time.Now().Local()
 )
 
 func init() {
@@ -212,7 +215,12 @@ func watchNamespaces(waitGroup *sync.WaitGroup, client *k8s.Client) {
 					break
 				}
 
-				if eventType == k8s.EventAdded {
+				// compare CreationTimestamp and controllerStartTime and act only on latest events
+				creationTimestamp := namespace.GetMetadata().GetCreationTimestamp()
+				isNewNamespace := creationTimestamp.Sub(controllerStartTime).Seconds() > 0
+
+				if eventType == k8s.EventAdded && isNewNamespace {
+
 					log.Info().Msg("Listing secrets with 'copyToAllNamespaces' for all namespaces...")
 					var secrets corev1.SecretList
 					err := client.List(context.Background(), k8s.AllNamespaces, &secrets)
