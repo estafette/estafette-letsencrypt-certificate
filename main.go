@@ -103,81 +103,84 @@ func main() {
 	gracefulShutdown, waitGroup := foundation.InitGracefulShutdownHandling()
 
 	// watch secrets for all namespaces
-	go func(waitGroup *sync.WaitGroup) {
-		// loop indefinitely
-		for {
-			log.Info().Msg("Watching secrets for all namespaces...")
-			var secret corev1.Secret
-			watcher, err := client.Watch(context.Background(), k8s.AllNamespaces, &secret, k8s.Timeout(time.Duration(300)*time.Second))
-			defer watcher.Close()
+	go watchSecrets(waitGroup, client)
 
-			if err != nil {
-				log.Error().Err(err)
-			} else {
-				// loop indefinitely, unless it errors
-				for {
-					secret := new(corev1.Secret)
-					eventType, err := watcher.Next(secret)
-					if err != nil {
-						log.Error().Err(err)
-						break
-					}
-
-					if eventType == k8s.EventAdded || eventType == k8s.EventModified {
-						waitGroup.Add(1)
-						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", eventType))
-						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
-						waitGroup.Done()
-
-						if err != nil {
-							log.Error().Err(err)
-							continue
-						}
-					}
-				}
-			}
-
-			// sleep random time between 22 and 37 seconds
-			sleepTime := applyJitter(30)
-			log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
-			time.Sleep(time.Duration(sleepTime) * time.Second)
-		}
-	}(waitGroup)
-
-	go func(waitGroup *sync.WaitGroup) {
-		// loop indefinitely
-		for {
-
-			// get secrets for all namespaces
-			log.Info().Msg("Listing secrets for all namespaces...")
-			var secrets corev1.SecretList
-			err := client.List(context.Background(), k8s.AllNamespaces, &secrets)
-			if err != nil {
-				log.Error().Err(err)
-			}
-			log.Info().Msgf("Cluster has %v secrets", len(secrets.Items))
-
-			// loop all secrets
-			for _, secret := range secrets.Items {
-				waitGroup.Add(1)
-				status, err := processSecret(client, secret, "poller")
-				certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
-				waitGroup.Done()
-
-				if err != nil {
-					log.Error().Err(err)
-					continue
-				}
-			}
-
-			// sleep random time around 900 seconds
-			sleepTime := applyJitter(900)
-			log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
-			time.Sleep(time.Duration(sleepTime) * time.Second)
-		}
-	}(waitGroup)
+	go listSecrets(waitGroup, client)
 
 	foundation.HandleGracefulShutdown(gracefulShutdown, waitGroup)
+}
+
+func watchSecrets(waitGroup *sync.WaitGroup, client *k8s.Client) {
+	// loop indefinitely
+	for {
+		log.Info().Msg("Watching secrets for all namespaces...")
+		var secret corev1.Secret
+		watcher, err := client.Watch(context.Background(), k8s.AllNamespaces, &secret, k8s.Timeout(time.Duration(300)*time.Second))
+		defer watcher.Close()
+
+		if err != nil {
+			log.Error().Err(err)
+		} else {
+			// loop indefinitely, unless it errors
+			for {
+				secret := new(corev1.Secret)
+				eventType, err := watcher.Next(secret)
+				if err != nil {
+					log.Error().Err(err)
+					break
+				}
+
+				if eventType == k8s.EventAdded || eventType == k8s.EventModified {
+					waitGroup.Add(1)
+					status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", eventType))
+					certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
+					waitGroup.Done()
+
+					if err != nil {
+						log.Error().Err(err)
+						continue
+					}
+				}
+			}
+		}
+
+		// sleep random time between 22 and 37 seconds
+		sleepTime := applyJitter(30)
+		log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
+		time.Sleep(time.Duration(sleepTime) * time.Second)
+	}
+}
+
+func listSecrets(waitGroup *sync.WaitGroup, client *k8s.Client) {
+	// loop indefinitely
+	for {
+		// get secrets for all namespaces
+		log.Info().Msg("Listing secrets for all namespaces...")
+		var secrets corev1.SecretList
+		err := client.List(context.Background(), k8s.AllNamespaces, &secrets)
+		if err != nil {
+			log.Error().Err(err)
+		}
+		log.Info().Msgf("Cluster has %v secrets", len(secrets.Items))
+
+		// loop all secrets
+		for _, secret := range secrets.Items {
+			waitGroup.Add(1)
+			status, err := processSecret(client, secret, "poller")
+			certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
+			waitGroup.Done()
+
+			if err != nil {
+				log.Error().Err(err)
+				continue
+			}
+		}
+
+		// sleep random time around 900 seconds
+		sleepTime := applyJitter(900)
+		log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
+		time.Sleep(time.Duration(sleepTime) * time.Second)
+	}
 }
 
 func applyJitter(input int) (output int) {
@@ -464,52 +467,65 @@ func copySecretToAllNamespaces(kubeClient *k8s.Client, secret *corev1.Secret, in
 
 	// loop namespaces
 	for _, ns := range namespaces.GetItems() {
-		nsName := ns.GetMetadata().GetName()
-		if nsName == secret.Metadata.GetNamespace() || ns.GetStatus().GetPhase() != "Active" {
-			continue
-		}
-
-		log.Info().Msgf("[%v] Secret %v.%v - Copying secret to namespace %v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, nsName)
-
-		// check if secret with same name already exists
-		var secretInNamespace corev1.Secret
-		err = kubeClient.Get(context.Background(), nsName, secret.Metadata.GetName(), &secretInNamespace)
-
-		if apiErr, ok := err.(*k8s.APIError); ok {
-			if apiErr.Code == http.StatusNotFound {
-				// doesn't exist, create new secret
-				secretInNamespace = corev1.Secret{
-					Metadata: &metav1.ObjectMeta{
-						Name:      secret.Metadata.Name,
-						Namespace: &nsName,
-						Labels:    secret.Metadata.GetLabels(),
-						Annotations: map[string]string{
-							annotationLetsEncryptCertificateLinkedSecret: fmt.Sprintf("%v/%v", secret.Metadata.GetNamespace(), secret.Metadata.GetName()),
-							annotationLetsEncryptCertificateState:        secret.GetMetadata().GetAnnotations()[annotationLetsEncryptCertificateState],
-						},
-					},
-					Data: secret.GetData(),
-				}
-
-				err = kubeClient.Create(context.Background(), &secretInNamespace)
-				if err != nil {
-					return err
-				}
-				continue
-			}
-
-			// other type of error
-			return err
-		}
-
-		// already exists, update data in secret
-		secretInNamespace.Data = secret.GetData()
-		secretInNamespace.Metadata.Annotations[annotationLetsEncryptCertificateState] = secret.GetMetadata().GetAnnotations()[annotationLetsEncryptCertificateState]
-
-		err = kubeClient.Update(context.Background(), &secretInNamespace)
+		err := copySecretToNamespace(kubeClient, secret, ns, initiator)
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func copySecretToNamespace(kubeClient *k8s.Client, secret *corev1.Secret, namespace *corev1.Namespace, initiator string) error {
+
+	nsName := namespace.GetMetadata().GetName()
+	if nsName == secret.Metadata.GetNamespace() || namespace.GetStatus().GetPhase() != "Active" {
+		return nil
+	}
+
+	log.Info().Msgf("[%v] Secret %v.%v - Copying secret to namespace %v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, nsName)
+
+	// check if secret with same name already exists
+	var secretInNamespace corev1.Secret
+	err := kubeClient.Get(context.Background(), nsName, secret.Metadata.GetName(), &secretInNamespace)
+
+	if apiErr, ok := err.(*k8s.APIError); ok {
+		if apiErr.Code == http.StatusNotFound {
+			// doesn't exist, create new secret
+			secretInNamespace = corev1.Secret{
+				Metadata: &metav1.ObjectMeta{
+					Name:      secret.Metadata.Name,
+					Namespace: &nsName,
+					Labels:    secret.Metadata.GetLabels(),
+					Annotations: map[string]string{
+						annotationLetsEncryptCertificateLinkedSecret: fmt.Sprintf("%v/%v", secret.Metadata.GetNamespace(), secret.Metadata.GetName()),
+						annotationLetsEncryptCertificateState:        secret.GetMetadata().GetAnnotations()[annotationLetsEncryptCertificateState],
+					},
+				},
+				Data: secret.GetData(),
+			}
+
+			err = kubeClient.Create(context.Background(), &secretInNamespace)
+			if err != nil {
+				return err
+			}
+			return nil
+		}
+
+		// other type of error
+		return err
+	}
+
+	// already exists
+	log.Info().Msgf("[%v] Secret %v.%v - Already exists in namespace %v, updating data...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, nsName)
+
+	// update data in secret
+	secretInNamespace.Data = secret.GetData()
+	secretInNamespace.Metadata.Annotations[annotationLetsEncryptCertificateState] = secret.GetMetadata().GetAnnotations()[annotationLetsEncryptCertificateState]
+
+	err = kubeClient.Update(context.Background(), &secretInNamespace)
+	if err != nil {
+		return err
 	}
 
 	return nil
