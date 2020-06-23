@@ -75,7 +75,7 @@ var (
 	)
 
 	// set controller Start time to watch only for newly created resources
-	controllerStartTime time.Time = time.Now().Local()
+	controllerStartTimeSeconds int64 = time.Now().Local().Unix()
 )
 
 func init() {
@@ -216,8 +216,8 @@ func watchNamespaces(waitGroup *sync.WaitGroup, client *k8s.Client) {
 				}
 
 				// compare CreationTimestamp and controllerStartTime and act only on latest events
-				creationTimestamp := namespace.GetMetadata().GetCreationTimestamp()
-				isNewNamespace := creationTimestamp.Sub(controllerStartTime).Seconds() > 0
+				namespaceCreationTimestampSeconds := namespace.GetMetadata().GetCreationTimestamp().GetSeconds()
+				isNewNamespace := controllerStartTimeSeconds < namespaceCreationTimestampSeconds
 
 				if eventType == k8s.EventAdded && isNewNamespace {
 
