@@ -283,7 +283,7 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 		secret.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
 
 		// update secret, with last attempt; this will fire an event for the watcher, but this shouldn't lead to any action because storing the last attempt locks the secret for 15 minutes
-		_, err = kubeClientset.CoreV1().Secrets("").Update(secret)
+		_, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Update(secret)
 		if err != nil {
 			log.Error().Err(err).Msgf("[%v] Secret %v.%v - Updating secret state has failed", initiator, secret.Name, secret.Namespace)
 			return status, err
@@ -441,7 +441,7 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 		log.Info().Msgf("[%v] Secret %v.%v - Secret has %v data items after writing the certificates...", initiator, secret.Name, secret.Namespace, len(secret.Data))
 
 		// update secret, because the data and state annotation have changed
-		_, err = kubeClientset.CoreV1().Secrets("").Update(secret)
+		_, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Update(secret)
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
