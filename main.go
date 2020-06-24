@@ -2,12 +2,10 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
-	"net/http"
 	"os"
 	"regexp"
 	"runtime"
@@ -26,9 +24,12 @@ import (
 	"github.com/go-acme/lego/v3/lego"
 	"github.com/go-acme/lego/v3/providers/dns/cloudflare"
 
-	"github.com/ericchiang/k8s"
-	corev1 "github.com/ericchiang/k8s/apis/core/v1"
-	metav1 "github.com/ericchiang/k8s/apis/meta/v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 const annotationLetsEncryptCertificate string = "estafette.io/letsencrypt-certificate"
@@ -77,8 +78,6 @@ var (
 func init() {
 	// metrics have to be registered to be exposed
 	prometheus.MustRegister(certificateTotals)
-	k8s.Register("", "v1", "events", true, &corev1.Event{})
-	k8s.RegisterList("", "v1", "events", true, &corev1.EventList{})
 }
 
 func main() {
@@ -93,7 +92,12 @@ func main() {
 	foundation.InitLiveness()
 
 	// create kubernetes api client
-	client, err := k8s.NewInClusterClient()
+	kubeClientConfig, err := rest.InClusterConfig()
+	if err != nil {
+		log.Fatal().Err(err)
+	}
+	// creates the clientset
+	kubeClientset, err := kubernetes.NewForConfig(kubeClientConfig)
 	if err != nil {
 		log.Fatal().Err(err)
 	}
@@ -103,81 +107,89 @@ func main() {
 	gracefulShutdown, waitGroup := foundation.InitGracefulShutdownHandling()
 
 	// watch secrets for all namespaces
-	go func(waitGroup *sync.WaitGroup) {
-		// loop indefinitely
-		for {
-			log.Info().Msg("Watching secrets for all namespaces...")
-			var secret corev1.Secret
-			watcher, err := client.Watch(context.Background(), k8s.AllNamespaces, &secret, k8s.Timeout(time.Duration(300)*time.Second))
-			defer watcher.Close()
+	go watchSecrets(waitGroup, kubeClientset)
 
-			if err != nil {
-				log.Error().Err(err)
-			} else {
-				// loop indefinitely, unless it errors
-				for {
-					secret := new(corev1.Secret)
-					eventType, err := watcher.Next(secret)
-					if err != nil {
-						log.Error().Err(err)
-						break
-					}
-
-					if eventType == k8s.EventAdded || eventType == k8s.EventModified {
-						waitGroup.Add(1)
-						status, err := processSecret(client, secret, fmt.Sprintf("watcher:%v", eventType))
-						certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
-						waitGroup.Done()
-
-						if err != nil {
-							log.Error().Err(err)
-							continue
-						}
-					}
-				}
-			}
-
-			// sleep random time between 22 and 37 seconds
-			sleepTime := applyJitter(30)
-			log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
-			time.Sleep(time.Duration(sleepTime) * time.Second)
-		}
-	}(waitGroup)
-
-	go func(waitGroup *sync.WaitGroup) {
-		// loop indefinitely
-		for {
-
-			// get secrets for all namespaces
-			log.Info().Msg("Listing secrets for all namespaces...")
-			var secrets corev1.SecretList
-			err := client.List(context.Background(), k8s.AllNamespaces, &secrets)
-			if err != nil {
-				log.Error().Err(err)
-			}
-			log.Info().Msgf("Cluster has %v secrets", len(secrets.Items))
-
-			// loop all secrets
-			for _, secret := range secrets.Items {
-				waitGroup.Add(1)
-				status, err := processSecret(client, secret, "poller")
-				certificateTotals.With(prometheus.Labels{"namespace": *secret.Metadata.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
-				waitGroup.Done()
-
-				if err != nil {
-					log.Error().Err(err)
-					continue
-				}
-			}
-
-			// sleep random time around 900 seconds
-			sleepTime := applyJitter(900)
-			log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
-			time.Sleep(time.Duration(sleepTime) * time.Second)
-		}
-	}(waitGroup)
+	go listSecrets(waitGroup, kubeClientset)
 
 	foundation.HandleGracefulShutdown(gracefulShutdown, waitGroup)
+}
+
+func watchSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset) {
+	// loop indefinitely
+	for {
+		log.Info().Msg("Watching secrets for all namespaces...")
+		timeoutSeconds := int64(300)
+
+		watcher, err := kubeClientset.CoreV1().Secrets("").Watch(metav1.ListOptions{
+			TimeoutSeconds: &timeoutSeconds,
+		})
+
+		if err != nil {
+			log.Error().Err(err).Msg("WatchSecrets call failed")
+		} else {
+			// loop indefinitely, unless it errors
+			for {
+				event, ok := <-watcher.ResultChan()
+				if !ok {
+					log.Warn().Msg("Watcher for secrets is closed")
+					break
+				}
+
+				if event.Type == watch.Added || event.Type == watch.Modified {
+					secret, ok := event.Object.(*v1.Secret)
+					if !ok {
+						log.Warn().Msg("Watcher for secrets returns event object of incorrect type")
+						break
+					}
+					waitGroup.Add(1)
+					status, err := processSecret(kubeClientset, secret, fmt.Sprintf("watcher:%v", event.Type))
+					certificateTotals.With(prometheus.Labels{"namespace": secret.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
+					waitGroup.Done()
+
+					if err != nil {
+						log.Error().Err(err).Msgf("Processing secret %v.%v failed", secret.Name, secret.Namespace)
+						continue
+					}
+				}
+			}
+		}
+
+		// sleep random time between 22 and 37 seconds
+		sleepTime := applyJitter(30)
+		log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
+		time.Sleep(time.Duration(sleepTime) * time.Second)
+	}
+}
+
+func listSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset) {
+	// loop indefinitely
+	for {
+		// get secrets for all namespaces
+		log.Info().Msg("Listing secrets for all namespaces...")
+		secrets, err := kubeClientset.CoreV1().Secrets("").List(metav1.ListOptions{})
+		if err != nil {
+			log.Error().Err(err).Msg("ListSecrets call failed")
+		}
+		log.Info().Msgf("Cluster has %v secrets", len(secrets.Items))
+
+		// loop all secrets
+		for _, secret := range secrets.Items {
+			waitGroup.Add(1)
+			status, err := processSecret(kubeClientset, &secret, "poller")
+			certificateTotals.With(prometheus.Labels{"namespace": secret.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
+			waitGroup.Done()
+
+			if err != nil {
+				log.Error().Err(err).Msgf("Processing secret %v.%v failed", secret.Name, secret.Namespace)
+				continue
+			}
+		}
+
+		// sleep random time around 900 seconds
+		sleepTime := applyJitter(900)
+		log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
+		time.Sleep(time.Duration(sleepTime) * time.Second)
+	}
 }
 
 func applyJitter(input int) (output int) {
@@ -187,20 +199,20 @@ func applyJitter(input int) (output int) {
 	return input - deviation + r.Intn(2*deviation)
 }
 
-func getDesiredSecretState(secret *corev1.Secret) (state LetsEncryptCertificateState) {
+func getDesiredSecretState(secret *v1.Secret) (state LetsEncryptCertificateState) {
 
 	var ok bool
 
 	// get annotations or set default value
-	state.Enabled, ok = secret.Metadata.Annotations[annotationLetsEncryptCertificate]
+	state.Enabled, ok = secret.Annotations[annotationLetsEncryptCertificate]
 	if !ok {
 		state.Enabled = "false"
 	}
-	state.Hostnames, ok = secret.Metadata.Annotations[annotationLetsEncryptCertificateHostnames]
+	state.Hostnames, ok = secret.Annotations[annotationLetsEncryptCertificateHostnames]
 	if !ok {
 		state.Hostnames = ""
 	}
-	copyToAllNamespacesValue, ok := secret.Metadata.Annotations[annotationLetsEncryptCertificateCopyToAllNamespaces]
+	copyToAllNamespacesValue, ok := secret.Annotations[annotationLetsEncryptCertificateCopyToAllNamespaces]
 	if ok {
 		b, err := strconv.ParseBool(copyToAllNamespacesValue)
 		if err == nil {
@@ -211,10 +223,10 @@ func getDesiredSecretState(secret *corev1.Secret) (state LetsEncryptCertificateS
 	return
 }
 
-func getCurrentSecretState(secret *corev1.Secret) (state LetsEncryptCertificateState) {
+func getCurrentSecretState(secret *v1.Secret) (state LetsEncryptCertificateState) {
 
 	// get state stored in annotations if present or set to empty struct
-	letsEncryptCertificateStateString, ok := secret.Metadata.Annotations[annotationLetsEncryptCertificateState]
+	letsEncryptCertificateStateString, ok := secret.Annotations[annotationLetsEncryptCertificateState]
 	if !ok {
 		// couldn't find saved state, setting to default struct
 		state = LetsEncryptCertificateState{}
@@ -231,7 +243,7 @@ func getCurrentSecretState(secret *corev1.Secret) (state LetsEncryptCertificateS
 	return
 }
 
-func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator string, desiredState, currentState LetsEncryptCertificateState) (status string, err error) {
+func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, initiator string, desiredState, currentState LetsEncryptCertificateState) (status string, err error) {
 
 	status = "failed"
 
@@ -257,7 +269,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 	// check if letsencrypt is enabled for this secret, hostnames are set and either the hostnames have changed or the certificate is older than 60 days and the last attempt was more than 15 minutes ago
 	if desiredState.Enabled == "true" && len(desiredState.Hostnames) > 0 && time.Since(lastAttempt).Minutes() > 15 && (desiredState.Hostnames != currentState.Hostnames || time.Since(lastRenewed).Hours() > float64(60*24)) {
 
-		log.Info().Msgf("[%v] Secret %v.%v - Certificates are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, desiredState.Hostnames)
+		log.Info().Msgf("[%v] Secret %v.%v - Certificates are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...", initiator, secret.Name, secret.Namespace, desiredState.Hostnames)
 
 		// 'lock' the secret for 15 minutes by storing the last attempt timestamp to prevent hitting the rate limit if the Let's Encrypt call fails and to prevent the watcher and the fallback polling to operate on the secret at the same time
 		currentState.LastAttempt = time.Now().Format(time.RFC3339)
@@ -268,12 +280,12 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 			log.Error().Err(err)
 			return status, err
 		}
-		secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
+		secret.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
 
 		// update secret, with last attempt; this will fire an event for the watcher, but this shouldn't lead to any action because storing the last attempt locks the secret for 15 minutes
-		err = kubeClient.Update(context.Background(), secret)
+		_, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Update(secret)
 		if err != nil {
-			log.Error().Err(err)
+			log.Error().Err(err).Msgf("[%v] Secret %v.%v - Updating secret state has failed", initiator, secret.Name, secret.Namespace)
 			return status, err
 		}
 
@@ -288,7 +300,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		}
 
 		// load account.json
-		log.Info().Msgf("[%v] Secret %v.%v - Loading account.json...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Loading account.json...", initiator, secret.Name, secret.Namespace)
 		fileBytes, err := ioutil.ReadFile("/account/account.json")
 		if err != nil {
 			log.Error().Err(err)
@@ -303,7 +315,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		}
 
 		// load private key
-		log.Info().Msgf("[%v] Secret %v.%v - Loading account.key...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Loading account.key...", initiator, secret.Name, secret.Namespace)
 		privateKey, err := loadPrivateKey("/account/account.key")
 		if err != nil {
 			log.Error().Err(err)
@@ -311,11 +323,11 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		}
 		letsEncryptUser.key = privateKey
 
-		log.Info().Msgf("[%v] Secret %v.%v - Creating lego config...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Creating lego config...", initiator, secret.Name, secret.Namespace)
 		config := lego.NewConfig(&letsEncryptUser)
 
 		// create letsencrypt lego client
-		log.Info().Msgf("[%v] Secret %v.%v - Creating lego client...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Creating lego client...", initiator, secret.Name, secret.Namespace)
 		legoClient, err := lego.NewClient(config)
 		if err != nil {
 			log.Error().Err(err)
@@ -323,7 +335,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		}
 
 		// get dns challenge
-		log.Info().Msgf("[%v] Secret %v.%v - Creating cloudflare provider...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Creating cloudflare provider...", initiator, secret.Name, secret.Namespace)
 		cloudflareConfig := cloudflare.NewDefaultConfig()
 		cloudflareConfig.AuthEmail = *cfAPIEmail
 		cloudflareConfig.AuthKey = *cfAPIKey
@@ -337,10 +349,10 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 
 		// clean up acme challenge records in advance
 		// for _, hostname := range hostnames {
-		// 	log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+		// 	log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, secret.Name, secret.Namespace, hostname)
 		// 	err = cloudflareProvider.CleanUp(hostname, "", "123d==")
 		// 	if err != nil {
-		// 		log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+		// 		log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, secret.Name, secret.Namespace, hostname)
 		// 	}
 		// }
 
@@ -348,7 +360,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		legoClient.Challenge.SetDNS01Provider(cloudflareProvider)
 
 		// get certificate
-		log.Info().Msgf("[%v] Secret %v.%v - Obtaining certificate...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Obtaining certificate...", initiator, secret.Name, secret.Namespace)
 		request := certificate.ObtainRequest{
 			Domains: hostnames,
 			Bundle:  true,
@@ -367,15 +379,15 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 
 		// clean up acme challenge records afterwards
 		// for _, hostname := range hostnames {
-		// 	log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+		// 	log.Info().Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v...", initiator, secret.Name, secret.Namespace, hostname)
 		// 	err = cloudflareProvider.CleanUp(hostname, "", "123d==")
 		// 	if err != nil {
-		// 		log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, hostname)
+		// 		log.Info().Err(err).Msgf("[%v] Secret %v.%v - Cleaning up TXT record _acme-challenge.%v failed", initiator, secret.Name, secret.Namespace, hostname)
 		// 	}
 		// }
 
 		// reload secret to avoid object has been modified error
-		err = kubeClient.Get(context.Background(), *secret.Metadata.Namespace, *secret.Metadata.Name, secret)
+		secret, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Get(secret.Name, metav1.GetOptions{})
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
@@ -385,7 +397,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		currentState = desiredState
 		currentState.LastRenewed = time.Now().Format(time.RFC3339)
 
-		log.Info().Msgf("[%v] Secret %v.%v - Updating secret because new certificates have been obtained...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Updating secret because new certificates have been obtained...", initiator, secret.Name, secret.Namespace)
 
 		// serialize state and store it in the annotation
 		letsEncryptCertificateStateByteArray, err = json.Marshal(currentState)
@@ -393,14 +405,14 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 			log.Error().Err(err)
 			return status, err
 		}
-		secret.Metadata.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
+		secret.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
 
 		// store the certificates
 		if secret.Data == nil {
 			secret.Data = make(map[string][]byte)
 		}
 
-		log.Info().Msgf("[%v] Secret %v.%v - Secret has %v data items before writing the certificates...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
+		log.Info().Msgf("[%v] Secret %v.%v - Secret has %v data items before writing the certificates...", initiator, secret.Name, secret.Namespace, len(secret.Data))
 
 		// ssl keys
 		secret.Data["ssl.crt"] = certificates.Certificate
@@ -412,7 +424,7 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 
 		jsonBytes, err := json.MarshalIndent(certificates, "", "\t")
 		if err != nil {
-			log.Error().Msgf("[%v] Secret %v.%v - Unable to marshal CertResource for domain %s\n\t%s", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, certificates.Domain, err.Error())
+			log.Error().Msgf("[%v] Secret %v.%v - Unable to marshal CertResource for domain %s\n\t%s", initiator, secret.Name, secret.Namespace, certificates.Domain, err.Error())
 			return status, err
 		}
 		secret.Data["ssl.json"] = jsonBytes
@@ -426,11 +438,10 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 		}
 		secret.Data["tls.json"] = jsonBytes
 
-		log.Info().Msgf("[%v] Secret %v.%v - Secret has %v data items after writing the certificates...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, len(secret.Data))
+		log.Info().Msgf("[%v] Secret %v.%v - Secret has %v data items after writing the certificates...", initiator, secret.Name, secret.Namespace, len(secret.Data))
 
 		// update secret, because the data and state annotation have changed
-		err = kubeClient.Update(context.Background(), secret)
-
+		_, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Update(secret)
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
@@ -438,11 +449,11 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 
 		status = "succeeded"
 
-		log.Info().Msgf("[%v] Secret %v.%v - Certificates have been stored in secret successfully...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+		log.Info().Msgf("[%v] Secret %v.%v - Certificates have been stored in secret successfully...", initiator, secret.Name, secret.Namespace)
 
 		if desiredState.CopyToAllNamespaces {
 			// copy to other namespaces if annotation is set to true
-			err = copySecretToAllNamespaces(kubeClient, secret, initiator)
+			err = copySecretToAllNamespaces(kubeClientset, secret, initiator)
 			if err != nil {
 				return status, err
 			}
@@ -456,57 +467,14 @@ func makeSecretChanges(kubeClient *k8s.Client, secret *corev1.Secret, initiator 
 	return status, nil
 }
 
-func copySecretToAllNamespaces(kubeClient *k8s.Client, secret *corev1.Secret, initiator string) (err error) {
+func copySecretToAllNamespaces(kubeClientset *kubernetes.Clientset, secret *v1.Secret, initiator string) (err error) {
 
 	// get all namespaces
-	var namespaces corev1.NamespaceList
-	err = kubeClient.List(context.Background(), k8s.AllNamespaces, &namespaces)
+	namespaces, err := kubeClientset.CoreV1().Namespaces().List(metav1.ListOptions{})
 
 	// loop namespaces
-	for _, ns := range namespaces.GetItems() {
-		nsName := ns.GetMetadata().GetName()
-		if nsName == secret.Metadata.GetNamespace() || ns.GetStatus().GetPhase() != "Active" {
-			continue
-		}
-
-		log.Info().Msgf("[%v] Secret %v.%v - Copying secret to namespace %v...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace, nsName)
-
-		// check if secret with same name already exists
-		var secretInNamespace corev1.Secret
-		err = kubeClient.Get(context.Background(), nsName, secret.Metadata.GetName(), &secretInNamespace)
-
-		if apiErr, ok := err.(*k8s.APIError); ok {
-			if apiErr.Code == http.StatusNotFound {
-				// doesn't exist, create new secret
-				secretInNamespace = corev1.Secret{
-					Metadata: &metav1.ObjectMeta{
-						Name:      secret.Metadata.Name,
-						Namespace: &nsName,
-						Labels:    secret.Metadata.GetLabels(),
-						Annotations: map[string]string{
-							annotationLetsEncryptCertificateLinkedSecret: fmt.Sprintf("%v/%v", secret.Metadata.GetNamespace(), secret.Metadata.GetName()),
-							annotationLetsEncryptCertificateState:        secret.GetMetadata().GetAnnotations()[annotationLetsEncryptCertificateState],
-						},
-					},
-					Data: secret.GetData(),
-				}
-
-				err = kubeClient.Create(context.Background(), &secretInNamespace)
-				if err != nil {
-					return err
-				}
-				continue
-			}
-
-			// other type of error
-			return err
-		}
-
-		// already exists, update data in secret
-		secretInNamespace.Data = secret.GetData()
-		secretInNamespace.Metadata.Annotations[annotationLetsEncryptCertificateState] = secret.GetMetadata().GetAnnotations()[annotationLetsEncryptCertificateState]
-
-		err = kubeClient.Update(context.Background(), &secretInNamespace)
+	for _, ns := range namespaces.Items {
+		err := copySecretToNamespace(kubeClientset, secret, &ns, initiator)
 		if err != nil {
 			return err
 		}
@@ -515,118 +483,158 @@ func copySecretToAllNamespaces(kubeClient *k8s.Client, secret *corev1.Secret, in
 	return nil
 }
 
-func isEventExist(kubeClient *k8s.Client, namespace string, name string, event *corev1.Event) (exist string, err error) {
-	err = kubeClient.Get(context.Background(), namespace, name, event)
+func copySecretToNamespace(kubeClientset *kubernetes.Clientset, secret *v1.Secret, namespace *v1.Namespace, initiator string) error {
 
-	if apiErr, ok := err.(*k8s.APIError); ok {
-		if apiErr.Code == http.StatusNotFound {
-			return "not found", err
-		}
-
-		log.Error().Msgf("Event %v.%v - Getting event has an error.\n\t%s", name, namespace, err.Error())
-		return "error", err
+	if namespace.Name == secret.Namespace || namespace.Status.Phase != v1.NamespaceActive {
+		return nil
 	}
 
-	return "found", nil
+	log.Info().Msgf("[%v] Secret %v.%v - Copying secret to namespace %v...", initiator, secret.Name, secret.Namespace, namespace.Name)
+
+	// check if secret with same name already exists
+	secretInNamespace, err := kubeClientset.CoreV1().Secrets(namespace.Name).Get(secret.Name, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		// doesn't exist, create new secret
+		secretInNamespace = &v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secret.Name,
+				Namespace: namespace.Name,
+				Labels:    secret.Labels,
+				Annotations: map[string]string{
+					annotationLetsEncryptCertificateLinkedSecret: fmt.Sprintf("%v/%v", secret.Namespace, secret.Name),
+					annotationLetsEncryptCertificateState:        secret.Annotations[annotationLetsEncryptCertificateState],
+				},
+			},
+			Data: secret.Data,
+		}
+
+		_, err = kubeClientset.CoreV1().Secrets(namespace.Name).Create(secretInNamespace)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	// already exists
+	log.Info().Msgf("[%v] Secret %v.%v - Already exists in namespace %v, updating data...", initiator, secret.Name, secret.Namespace, namespace.Name)
+
+	// update data in secret
+	secretInNamespace.Data = secret.Data
+	secretInNamespace.Annotations[annotationLetsEncryptCertificateState] = secret.Annotations[annotationLetsEncryptCertificateState]
+
+	_, err = kubeClientset.CoreV1().Secrets(namespace.Name).Update(secretInNamespace)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func postEventAboutStatus(kubeClient *k8s.Client, secret *corev1.Secret, eventType string, action string, reason string, message string, kind string, reportingController string, reportingInstance string) (err error) {
+func isEventExist(kubeClientset *kubernetes.Clientset, namespace string, name string) (*v1.Event, string, error) {
+	event, err := kubeClientset.CoreV1().Events(namespace).Get(name, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		return nil, "not found", err
+	}
+	if err != nil {
+		log.Error().Msgf("Event %v.%v - Getting event has an error.\n\t%s", name, namespace, err.Error())
+		return nil, "error", err
+	}
+
+	return event, "found", nil
+}
+
+func postEventAboutStatus(kubeClientset *kubernetes.Clientset, secret *v1.Secret, eventType string, action string, reason string, message string, kind string, reportingController string, reportingInstance string) (err error) {
 	now := time.Now().UTC()
-	secs := int64(now.Unix())
 	count := int32(1)
-	eventName := fmt.Sprintf("%v-%v", *secret.Metadata.Name, action)
+	eventName := fmt.Sprintf("%v-%v", secret.Name, action)
 	eventSource := os.Getenv("HOSTNAME")
-	var eventResp corev1.Event
-	var exist string
-	exist, err = isEventExist(kubeClient, *secret.Metadata.Namespace, eventName, &eventResp)
+	eventResp, exist, err := isEventExist(kubeClientset, secret.Namespace, eventName)
 
 	if exist == "error" {
 		return err
 	}
 
 	if exist == "found" {
-		count = *eventResp.Count + 1
-		eventResp.Type = &eventType
-		eventResp.Action = &action
-		eventResp.Reason = &reason
-		eventResp.Message = &message
-		eventResp.Count = &count
-		eventResp.LastTimestamp.Seconds = &secs
-		err = kubeClient.Update(context.Background(), &eventResp)
+		count = eventResp.Count + 1
+		eventResp.Type = eventType
+		eventResp.Action = action
+		eventResp.Reason = reason
+		eventResp.Message = message
+		eventResp.Count = count
+		eventResp.LastTimestamp = metav1.NewTime(now)
+		_, err = kubeClientset.CoreV1().Events(secret.Namespace).Update(eventResp)
 
 		if err != nil {
-			log.Error().Msgf("Event %v.%v - Updating Event has an error.\n\t%s", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace, err.Error())
+			log.Error().Msgf("Event %v.%v - Updating Event has an error.\n\t%s", eventResp.Name, eventResp.Namespace, err.Error())
 			return err
 		}
 
-		log.Info().Msgf("Event %v.%v - has been updated successfully...", *eventResp.Metadata.Name, *eventResp.Metadata.Namespace)
+		log.Info().Msgf("Event %v.%v - has been updated successfully...", eventResp.Name, eventResp.Namespace)
 		return
 	}
 
-	event := &corev1.Event{
-		Metadata: &metav1.ObjectMeta{
-			Name:      &eventName,
-			Namespace: secret.Metadata.Namespace,
-			CreationTimestamp: &metav1.Time{
-				Seconds: &secs,
-			},
-			Labels: secret.Metadata.Labels,
+	event := &v1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              eventName,
+			Namespace:         secret.Namespace,
+			CreationTimestamp: metav1.NewTime(now),
+			Labels:            secret.Labels,
 		},
-		FirstTimestamp: &metav1.Time{
-			Seconds: &secs,
+		FirstTimestamp: metav1.NewTime(now),
+		LastTimestamp:  metav1.NewTime(now),
+		Type:           eventType,
+		Action:         action,
+		Reason:         reason,
+		Message:        message,
+		Count:          count,
+		Source: v1.EventSource{
+			Component: eventSource,
 		},
-		LastTimestamp: &metav1.Time{
-			Seconds: &secs,
+		InvolvedObject: v1.ObjectReference{
+			APIVersion:      secret.APIVersion,
+			Kind:            kind,
+			Namespace:       secret.Namespace,
+			Name:            secret.Name,
+			ResourceVersion: secret.ResourceVersion,
+			UID:             secret.UID,
 		},
-		Type:    &eventType,
-		Action:  &action,
-		Reason:  &reason,
-		Message: &message,
-		Count:   &count,
-		Source: &corev1.EventSource{
-			Component: &eventSource,
-		},
-		InvolvedObject: &corev1.ObjectReference{
-			Namespace: secret.Metadata.Namespace,
-			Kind:      &kind,
-		},
-		EventTime: &metav1.MicroTime{
-			Seconds: &secs,
-		},
-		ReportingComponent: &reportingController,
-		ReportingInstance:  &reportingInstance,
+		EventTime:           metav1.NewMicroTime(now),
+		ReportingController: reportingController,
+		ReportingInstance:   reportingInstance,
 	}
 
-	err = kubeClient.Create(context.Background(), event)
-
+	_, err = kubeClientset.CoreV1().Events(event.Namespace).Create(event)
 	if err != nil {
-		log.Error().Msgf("Event %v.%v - Creating Event has an error. %s", *event.Metadata.Name, *event.Metadata.Namespace, err.Error())
+		log.Error().Msgf("Event %v.%v - Creating Event has an error. %s", event.Name, event.Namespace, err.Error())
 		return err
 	}
 
-	log.Info().Msgf("Event %v.%v - has been created successfully...", *event.Metadata.Name, *event.Metadata.Namespace)
+	log.Info().Msgf("Event %v.%v - has been created successfully...", event.Name, event.Namespace)
 	return
 }
 
-func processSecret(kubeClient *k8s.Client, secret *corev1.Secret, initiator string) (status string, err error) {
+func processSecret(kubeClientset *kubernetes.Clientset, secret *v1.Secret, initiator string) (status string, err error) {
 	status = "failed"
 
-	if &secret != nil && &secret.Metadata != nil && &secret.Metadata.Annotations != nil {
+	if secret != nil {
 
 		desiredState := getDesiredSecretState(secret)
 		currentState := getCurrentSecretState(secret)
-		status, err = makeSecretChanges(kubeClient, secret, initiator, desiredState, currentState)
+		status, err = makeSecretChanges(kubeClientset, secret, initiator, desiredState, currentState)
 
 		if err != nil {
-			log.Error().Err(err).Msgf("[%v] Secret %v.%v - Error occurred...", initiator, *secret.Metadata.Name, *secret.Metadata.Namespace)
+			log.Error().Err(err).Msgf("[%v] Secret %v.%v - Error occurred...", initiator, secret.Name, secret.Namespace)
 		}
 
 		if status == "failed" {
-			err = postEventAboutStatus(kubeClient, secret, "Warning", strings.Title(status), "FailedObtain", fmt.Sprintf("Certificate for secret %v obtaining failed", *secret.Metadata.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
+			err = postEventAboutStatus(kubeClientset, secret, "Warning", strings.Title(status), "FailedObtain", fmt.Sprintf("Certificate for secret %v obtaining failed", secret.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
 			return
 		}
 		if status == "succeeded" {
-			err = postEventAboutStatus(kubeClient, secret, "Normal", strings.Title(status), "SuccessfulObtain", fmt.Sprintf("Certificate for secret %v has been obtained succesfully", *secret.Metadata.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
+			err = postEventAboutStatus(kubeClientset, secret, "Normal", strings.Title(status), "SuccessfulObtain", fmt.Sprintf("Certificate for secret %v has been obtained succesfully", secret.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
 			return
 		}
 	}
