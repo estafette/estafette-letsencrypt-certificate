@@ -212,8 +212,9 @@ func listSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset)
 }
 
 func watchNamespaces(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset, factory informers.SharedInformerFactory, stopper chan struct{}) {
-	namespacesInformer := factory.Core().V1().Namespaces().Informer()
+	log.Info().Msg("Watching for new namespaces...")
 
+	namespacesInformer := factory.Core().V1().Namespaces().Informer()
 	namespacesInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			namespace, ok := obj.(*v1.Namespace)
