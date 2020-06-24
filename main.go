@@ -27,9 +27,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 )
 
 const annotationLetsEncryptCertificate string = "estafette.io/letsencrypt-certificate"
@@ -105,6 +108,16 @@ func main() {
 		log.Fatal().Err(err)
 	}
 
+	// create the shared informer factory and use the client to connect to Kubernetes API
+	factory := informers.NewSharedInformerFactory(kubeClientset, 0)
+
+	// create a channel to stop the shared informers gracefully
+	stopper := make(chan struct{})
+	defer close(stopper)
+
+	// handle kubernetes API crashes
+	defer k8sruntime.HandleCrash()
+
 	foundation.InitMetrics()
 
 	gracefulShutdown, waitGroup := foundation.InitGracefulShutdownHandling()
@@ -115,7 +128,7 @@ func main() {
 	go listSecrets(waitGroup, kubeClientset)
 
 	// watch namespaces
-	go watchNamespaces(waitGroup, kubeClientset)
+	watchNamespaces(waitGroup, kubeClientset, factory, stopper)
 
 	foundation.HandleGracefulShutdown(gracefulShutdown, waitGroup)
 }
@@ -198,47 +211,26 @@ func listSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset)
 	}
 }
 
-func watchNamespaces(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset) {
-	// loop indefinitely
-	for {
-		log.Info().Msg("Watching for new namespaces...")
-		timeoutSeconds := int64(300)
+func watchNamespaces(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset, factory informers.SharedInformerFactory, stopper chan struct{}) {
+	namespacesInformer := factory.Core().V1().Namespaces().Informer()
 
-		watcher, err := kubeClientset.CoreV1().Namespaces().Watch(metav1.ListOptions{
-			TimeoutSeconds: &timeoutSeconds,
-		})
+	namespacesInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			namespace, ok := obj.(*v1.Namespace)
+			if !ok {
+				log.Warn().Msg("Watcher for namespaces returns event object of incorrect type")
+				return
+			}
+			// compare CreationTimestamp and controllerStartTime and act only on latest events
+			isNewNamespace := namespace.CreationTimestamp.Sub(controllerStartTime).Seconds() > 0
+			if isNewNamespace {
 
-		if err != nil {
-			log.Error().Err(err).Msg("WatchNamespaces call failed")
+				log.Info().Msg("Listing secrets with 'copyToAllNamespaces' for all namespaces...")
 
-		} else {
-			// loop indefinitely, unless it errors
-			for {
-				event, ok := <-watcher.ResultChan()
-				if !ok {
-					log.Warn().Msg("Watcher for secrets is closed")
-					break
-				}
-
-				namespace, ok := event.Object.(*v1.Namespace)
-				if !ok {
-					log.Warn().Msg("Watcher for secrets returns event object of incorrect type")
-					break
-				}
-
-				// compare CreationTimestamp and controllerStartTime and act only on latest events
-				isNewNamespace := namespace.CreationTimestamp.Sub(controllerStartTime).Seconds() > 0
-
-				if event.Type == watch.Added && isNewNamespace {
-
-					log.Info().Msg("Listing secrets with 'copyToAllNamespaces' for all namespaces...")
-
-					secrets, err := kubeClientset.CoreV1().Secrets("").List(metav1.ListOptions{})
-					if err != nil {
-						log.Error().Err(err).Msg("ListSecrets call failed")
-						continue
-					}
-
+				secrets, err := kubeClientset.CoreV1().Secrets("").List(metav1.ListOptions{})
+				if err != nil {
+					log.Error().Err(err).Msgf("[%v] ListSecrets call failed", "ns-watcher:ADDED")
+				} else {
 					// loop all secrets
 					for _, secret := range secrets.Items {
 						copyToAllNamespacesValue, ok := secret.Annotations[annotationLetsEncryptCertificateCopyToAllNamespaces]
@@ -250,7 +242,7 @@ func watchNamespaces(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Client
 							}
 							if shouldCopyToAllNamespaces {
 								waitGroup.Add(1)
-								err = copySecretToNamespace(kubeClientset, &secret, namespace, fmt.Sprintf("ns-watcher:%v", event.Type))
+								err = copySecretToNamespace(kubeClientset, &secret, namespace, "ns-watcher:ADDED")
 								waitGroup.Done()
 
 								if err != nil {
@@ -262,13 +254,11 @@ func watchNamespaces(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Client
 					}
 				}
 			}
-		}
 
-		// sleep random time between 22 and 37 seconds
-		sleepTime := applyJitter(30)
-		log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
-		time.Sleep(time.Duration(sleepTime) * time.Second)
-	}
+		},
+	})
+
+	go namespacesInformer.Run(stopper)
 }
 
 func applyJitter(input int) (output int) {
