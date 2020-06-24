@@ -326,7 +326,7 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 		log.Info().Msgf("[%v] Secret %v.%v - Creating lego config...", initiator, secret.Name, secret.Namespace)
 		config := lego.NewConfig(&letsEncryptUser)
 
-		// create letsencrypt lego clientset
+		// create letsencrypt lego client
 		log.Info().Msgf("[%v] Secret %v.%v - Creating lego client...", initiator, secret.Name, secret.Namespace)
 		legoClient, err := lego.NewClient(config)
 		if err != nil {
@@ -387,7 +387,7 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 		// }
 
 		// reload secret to avoid object has been modified error
-		secret, err = kubeClientset.CoreV1().Secrets("").Get(secret.Name, metav1.GetOptions{})
+		secret, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Get(secret.Name, metav1.GetOptions{})
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
@@ -602,7 +602,7 @@ func postEventAboutStatus(kubeClientset *kubernetes.Clientset, secret *v1.Secret
 		ReportingInstance:   reportingInstance,
 	}
 
-	_, err = kubeClientset.CoreV1().Events(secret.Namespace).Create(event)
+	_, err = kubeClientset.CoreV1().Events("").Create(event)
 	if err != nil {
 		log.Error().Msgf("Event %v.%v - Creating Event has an error. %s", event.Name, event.Namespace, err.Error())
 		return err
