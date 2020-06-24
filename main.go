@@ -602,7 +602,7 @@ func postEventAboutStatus(kubeClientset *kubernetes.Clientset, secret *v1.Secret
 		ReportingInstance:   reportingInstance,
 	}
 
-	_, err = kubeClientset.CoreV1().Events("").Create(event)
+	_, err = kubeClientset.CoreV1().Events(event.Namespace).Create(event)
 	if err != nil {
 		log.Error().Msgf("Event %v.%v - Creating Event has an error. %s", event.Name, event.Namespace, err.Error())
 		return err
