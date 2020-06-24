@@ -75,7 +75,7 @@ var (
 	)
 
 	// set controller Start time to watch only for newly created resources
-	controllerStartTimeSeconds int64 = time.Now().Local().Unix()
+	controllerStartTime time.Time = time.Now().Local()
 )
 
 func init() {
@@ -113,6 +113,9 @@ func main() {
 	go watchSecrets(waitGroup, kubeClientset)
 
 	go listSecrets(waitGroup, kubeClientset)
+
+	// watch namespaces
+	go watchNamespaces(waitGroup, kubeClientset)
 
 	foundation.HandleGracefulShutdown(gracefulShutdown, waitGroup)
 }
@@ -195,44 +198,50 @@ func listSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset)
 	}
 }
 
-func watchNamespaces(waitGroup *sync.WaitGroup, client *k8s.Client) {
+func watchNamespaces(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset) {
 	// loop indefinitely
 	for {
 		log.Info().Msg("Watching for new namespaces...")
-		var namespace corev1.Namespace
-		watcher, err := client.Watch(context.Background(), k8s.AllNamespaces, &namespace, k8s.Timeout(time.Duration(300)*time.Second))
-		defer watcher.Close()
+		timeoutSeconds := int64(300)
+
+		watcher, err := kubeClientset.CoreV1().Namespaces().Watch(metav1.ListOptions{
+			TimeoutSeconds: &timeoutSeconds,
+		})
 
 		if err != nil {
-			log.Error().Err(err)
+			log.Error().Err(err).Msg("WatchNamespaces call failed")
+
 		} else {
 			// loop indefinitely, unless it errors
 			for {
-				namespace := new(corev1.Namespace)
-				eventType, err := watcher.Next(namespace)
-				if err != nil {
-					log.Error().Err(err)
+				event, ok := <-watcher.ResultChan()
+				if !ok {
+					log.Warn().Msg("Watcher for secrets is closed")
+					break
+				}
+
+				namespace, ok := event.Object.(*v1.Namespace)
+				if !ok {
+					log.Warn().Msg("Watcher for secrets returns event object of incorrect type")
 					break
 				}
 
 				// compare CreationTimestamp and controllerStartTime and act only on latest events
-				namespaceCreationTimestampSeconds := namespace.GetMetadata().GetCreationTimestamp().GetSeconds()
-				isNewNamespace := controllerStartTimeSeconds < namespaceCreationTimestampSeconds
+				isNewNamespace := namespace.CreationTimestamp.Sub(controllerStartTime).Seconds() > 0
 
-				if eventType == k8s.EventAdded && isNewNamespace {
+				if event.Type == watch.Added && isNewNamespace {
 
 					log.Info().Msg("Listing secrets with 'copyToAllNamespaces' for all namespaces...")
-					var secrets corev1.SecretList
-					err := client.List(context.Background(), k8s.AllNamespaces, &secrets)
+
+					secrets, err := kubeClientset.CoreV1().Secrets("").List(metav1.ListOptions{})
 					if err != nil {
-						log.Error().Err(err)
+						log.Error().Err(err).Msg("ListSecrets call failed")
 						continue
 					}
-					log.Info().Msgf("Cluster has %v secrets, checking for secrets with 'copyToAllNamespaces'...", len(secrets.Items))
 
 					// loop all secrets
 					for _, secret := range secrets.Items {
-						copyToAllNamespacesValue, ok := secret.Metadata.Annotations[annotationLetsEncryptCertificateCopyToAllNamespaces]
+						copyToAllNamespacesValue, ok := secret.Annotations[annotationLetsEncryptCertificateCopyToAllNamespaces]
 						if ok {
 							shouldCopyToAllNamespaces, err := strconv.ParseBool(copyToAllNamespacesValue)
 							if err != nil {
@@ -241,7 +250,7 @@ func watchNamespaces(waitGroup *sync.WaitGroup, client *k8s.Client) {
 							}
 							if shouldCopyToAllNamespaces {
 								waitGroup.Add(1)
-								err = copySecretToNamespace(client, secret, namespace, fmt.Sprintf("ns-watcher:%v", eventType))
+								err = copySecretToNamespace(kubeClientset, &secret, namespace, fmt.Sprintf("ns-watcher:%v", event.Type))
 								waitGroup.Done()
 
 								if err != nil {
