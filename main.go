@@ -27,9 +27,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 )
 
 const annotationLetsEncryptCertificate string = "estafette.io/letsencrypt-certificate"
@@ -73,6 +76,9 @@ var (
 		},
 		[]string{"namespace", "status", "initiator", "type"},
 	)
+
+	// set controller Start time to watch only for newly created resources
+	controllerStartTime time.Time = time.Now().Local()
 )
 
 func init() {
@@ -102,6 +108,16 @@ func main() {
 		log.Fatal().Err(err)
 	}
 
+	// create the shared informer factory and use the client to connect to Kubernetes API
+	factory := informers.NewSharedInformerFactory(kubeClientset, 0)
+
+	// create a channel to stop the shared informers gracefully
+	stopper := make(chan struct{})
+	defer close(stopper)
+
+	// handle kubernetes API crashes
+	defer k8sruntime.HandleCrash()
+
 	foundation.InitMetrics()
 
 	gracefulShutdown, waitGroup := foundation.InitGracefulShutdownHandling()
@@ -110,6 +126,9 @@ func main() {
 	go watchSecrets(waitGroup, kubeClientset)
 
 	go listSecrets(waitGroup, kubeClientset)
+
+	// watch namespaces
+	watchNamespaces(waitGroup, kubeClientset, factory, stopper)
 
 	foundation.HandleGracefulShutdown(gracefulShutdown, waitGroup)
 }
@@ -190,6 +209,57 @@ func listSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset)
 		log.Info().Msgf("Sleeping for %v seconds...", sleepTime)
 		time.Sleep(time.Duration(sleepTime) * time.Second)
 	}
+}
+
+func watchNamespaces(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset, factory informers.SharedInformerFactory, stopper chan struct{}) {
+	log.Info().Msg("Watching for new namespaces...")
+
+	namespacesInformer := factory.Core().V1().Namespaces().Informer()
+	namespacesInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			namespace, ok := obj.(*v1.Namespace)
+			if !ok {
+				log.Warn().Msg("Watcher for namespaces returns event object of incorrect type")
+				return
+			}
+			// compare CreationTimestamp and controllerStartTime and act only on latest events
+			isNewNamespace := namespace.CreationTimestamp.Sub(controllerStartTime).Seconds() > 0
+			if isNewNamespace {
+
+				log.Info().Msg("Listing secrets with 'copyToAllNamespaces' for all namespaces...")
+
+				secrets, err := kubeClientset.CoreV1().Secrets("").List(metav1.ListOptions{})
+				if err != nil {
+					log.Error().Err(err).Msgf("[%v] ListSecrets call failed", "ns-watcher:ADDED")
+				} else {
+					// loop all secrets
+					for _, secret := range secrets.Items {
+						copyToAllNamespacesValue, ok := secret.Annotations[annotationLetsEncryptCertificateCopyToAllNamespaces]
+						if ok {
+							shouldCopyToAllNamespaces, err := strconv.ParseBool(copyToAllNamespacesValue)
+							if err != nil {
+								log.Error().Err(err)
+								continue
+							}
+							if shouldCopyToAllNamespaces {
+								waitGroup.Add(1)
+								err = copySecretToNamespace(kubeClientset, &secret, namespace, "ns-watcher:ADDED")
+								waitGroup.Done()
+
+								if err != nil {
+									log.Error().Err(err)
+									continue
+								}
+							}
+						}
+					}
+				}
+			}
+
+		},
+	})
+
+	go namespacesInformer.Run(stopper)
 }
 
 func applyJitter(input int) (output int) {

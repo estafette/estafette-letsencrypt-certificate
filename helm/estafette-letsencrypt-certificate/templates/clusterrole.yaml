@@ -20,6 +20,7 @@ rules:
   - namespaces
   verbs:
   - list
+  - watch
 - apiGroups: [""] # "" indicates the core/v1 API group
   resources:
   - events
