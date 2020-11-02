@@ -81,8 +81,8 @@ stages:
         cloudflareApiKey: abc
       imagePullSecret:
         registryURL: https://index.docker.io/v1/
-        username: estafette.secret(8-uoP_ACB4mDFbTB.lGvWd6H7lQDOjBJujWZAMZOweu9jKgR6MJJ2VYT-WA==.h3DDab3h2ArDlFRnmndTB473KsuNXyZOtifWY-v_XmS23-IA2yHi7O8GWKOGl-TJSm6RopmdSK62AmyiIkEylwb_eiH4jw==)
-        password: estafette.secret(yPZhEjwGIUhzxn4o.r_Nl4JY0f1lOPnRN2sfNqcQ-_wBhkeDNovAuXKsOuLkFsEToQ6sIxHlVQbS_5dZ2.7ck14Nl_BHR_YDB874Hqg_cRqgRqlaf0nLM4FYhOtuFM010kuE1Ka_7XO3ju8p2R3mFo94Bjfv9Ej2Jpgg2-E7DMc9ISzQ==)
+        username: 'estafette.secret(8-uoP_ACB4mDFbTB.lGvWd6H7lQDOjBJujWZAMZOweu9jKgR6MJJ2VYT-WA==.h3DDab3h2ArDlFRnmndTB473KsuNXyZOtifWY-v_XmS23-IA2yHi7O8GWKOGl-TJSm6RopmdSK62AmyiIkEylwb_eiH4jw==)'
+        password: 'estafette.secret(yPZhEjwGIUhzxn4o.r_Nl4JY0f1lOPnRN2sfNqcQ-_wBhkeDNovAuXKsOuLkFsEToQ6sIxHlVQbS_5dZ2.7ck14Nl_BHR_YDB874Hqg_cRqgRqlaf0nLM4FYhOtuFM010kuE1Ka_7XO3ju8p2R3mFo94Bjfv9Ej2Jpgg2-E7DMc9ISzQ==)'
 
   clone-charts-repo:
     image: extensions/git-clone:dev
