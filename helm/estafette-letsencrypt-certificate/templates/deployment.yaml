@@ -32,7 +32,7 @@ spec:
       {{- if .Values.imagePullSecret }}
       imagePullSecrets:
       - name: {{ include "estafette-letsencrypt-certificate.fullname" . }}-image-pull-secret
-      {{- end -}}
+      {{- end }}
       serviceAccountName: {{ template "estafette-letsencrypt-certificate.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
