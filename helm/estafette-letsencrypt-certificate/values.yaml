@@ -18,6 +18,12 @@ secret:
   # set an api key for a cloudflare account (no need to base64 encode, the template does that)
   cloudflareApiKey: ""
 
+# Populate this object with your own secret
+imagePullSecret: {}
+#  registryURL: https://index.docker.io/v1/
+#  username: testUser
+#  password: testPassword
+
 # the following log formats are available: plaintext, console, json, stackdriver, v3 (see https://github.com/estafette/estafette-foundation for more info)
 logFormat: plaintext
 
@@ -33,7 +39,6 @@ image:
   tag:
   pullPolicy: IfNotPresent
 
-imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
