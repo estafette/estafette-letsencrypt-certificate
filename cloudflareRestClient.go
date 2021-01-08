@@ -12,8 +12,6 @@ import (
 type restClient interface {
 	Get(string, APIAuthentication) ([]byte, error)
 	Post(string, interface{}, APIAuthentication) ([]byte, error)
-	Put(string, interface{}, APIAuthentication) ([]byte, error)
-	Delete(string, APIAuthentication) ([]byte, error)
 }
 
 // realRESTClient is the http client that makes the actual request to cloudflare api.
@@ -28,16 +26,6 @@ func (r *realRESTClient) Get(cloudflareAPIURL string, authentication APIAuthenti
 // Post calls the cloudflare api for given url and using authentication to get access.
 func (r *realRESTClient) Post(cloudflareAPIURL string, params interface{}, authentication APIAuthentication) (body []byte, err error) {
 	return core("POST", cloudflareAPIURL, params, authentication)
-}
-
-// Put calls the cloudflare api for given url and using authentication to get access.
-func (r *realRESTClient) Put(cloudflareAPIURL string, params interface{}, authentication APIAuthentication) (body []byte, err error) {
-	return core("PUT", cloudflareAPIURL, params, authentication)
-}
-
-// Delete calls the cloudflare api for given url and using authentication to get access.
-func (r *realRESTClient) Delete(cloudflareAPIURL string, authentication APIAuthentication) (body []byte, err error) {
-	return core("DELETE", cloudflareAPIURL, nil, authentication)
 }
 
 func core(verb, cloudflareAPIURL string, params interface{}, authentication APIAuthentication) (body []byte, err error) {
