@@ -765,7 +765,7 @@ func uploadToCloudflare(hostnames string, certificate, privateKey []byte) (err e
 	// loop hostnames
 	hostnameList := strings.Split(hostnames, ",")
 	for _, hostname := range hostnameList {
-		_, err := cf.CreateSSLConfiguration(hostname, string(certificate), string(privateKey))
+		_, err := cf.UpsertSSLConfigurationByDNSName(hostname, string(certificate), string(privateKey))
 		if err != nil {
 			return err
 		}

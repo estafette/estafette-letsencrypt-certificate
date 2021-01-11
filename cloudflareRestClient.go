@@ -12,6 +12,7 @@ import (
 type restClient interface {
 	Get(string, APIAuthentication) ([]byte, error)
 	Post(string, interface{}, APIAuthentication) ([]byte, error)
+	Patch(string, interface{}, APIAuthentication) ([]byte, error)
 }
 
 // realRESTClient is the http client that makes the actual request to cloudflare api.
@@ -26,6 +27,11 @@ func (r *realRESTClient) Get(cloudflareAPIURL string, authentication APIAuthenti
 // Post calls the cloudflare api for given url and using authentication to get access.
 func (r *realRESTClient) Post(cloudflareAPIURL string, params interface{}, authentication APIAuthentication) (body []byte, err error) {
 	return core("POST", cloudflareAPIURL, params, authentication)
+}
+
+// Patch calls the cloudflare api for given url and using authentication to get access.
+func (r *realRESTClient) Patch(cloudflareAPIURL string, params interface{}, authentication APIAuthentication) (body []byte, err error) {
+	return core("PATCH", cloudflareAPIURL, params, authentication)
 }
 
 func core(verb, cloudflareAPIURL string, params interface{}, authentication APIAuthentication) (body []byte, err error) {

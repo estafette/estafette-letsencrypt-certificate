@@ -101,13 +101,55 @@ func (cf *Cloudflare) GetZoneByDNSName(dnsName string) (r Zone, err error) {
 	return
 }
 
-func (cf *Cloudflare) createSSLConfigurationByZone(zone Zone, certificate, privateKey string) (r createResult, err error) {
-	// create ssl config at cloudflare api
-	newSSLConfiguration := SSLConfiguration{Certificate: certificate, PrivateKey: privateKey}
+func (cf *Cloudflare) getSSLConfigurationByZone(zone Zone) (r listResult, err error) {
 
+	// create api url
+	findSSLConfigURI := fmt.Sprintf("%v/zones/%v/custom_certificates", cf.baseURL, zone.ID)
+
+	// fetch result from cloudflare api
+	body, err := cf.restClient.Get(findSSLConfigURI, cf.authentication)
+	if err != nil {
+		return r, err
+	}
+
+	json.NewDecoder(bytes.NewReader(body)).Decode(&r)
+
+	if !r.Success {
+		err = fmt.Errorf("Listing cloudflare zones failed | %v | %v", r.Errors, r.Messages)
+		return
+	}
+
+	return
+}
+
+func (cf *Cloudflare) updateSSLConfigurationByZoneAndID(zone Zone, sslConfigID string, sslConfig SSLConfiguration) (r sslConfigResult, err error) {
+
+	// create cloudflare api url
+	createSSLConfigurationURI := fmt.Sprintf("%v/zones/%v/custom_certificates/%v", cf.baseURL, zone.ID, sslConfigID)
+
+	// update ssl config with new certificate and key
+	body, err := cf.restClient.Patch(createSSLConfigurationURI, sslConfig, cf.authentication)
+	if err != nil {
+		return r, err
+	}
+
+	json.NewDecoder(bytes.NewReader(body)).Decode(&r)
+
+	if !r.Success {
+		err = fmt.Errorf("Updating cloudflare ssl config failed | %v | %v", r.Errors, r.Messages)
+		return
+	}
+
+	return
+}
+
+func (cf *Cloudflare) createSSLConfigurationByZone(zone Zone, sslConfig SSLConfiguration) (r sslConfigResult, err error) {
+
+	// create cloudflare api url
 	createSSLConfigurationURI := fmt.Sprintf("%v/zones/%v/custom_certificates", cf.baseURL, zone.ID)
 
-	body, err := cf.restClient.Post(createSSLConfigurationURI, newSSLConfiguration, cf.authentication)
+	// create ssl config
+	body, err := cf.restClient.Post(createSSLConfigurationURI, sslConfig, cf.authentication)
 	if err != nil {
 		return r, err
 	}
@@ -120,28 +162,46 @@ func (cf *Cloudflare) createSSLConfigurationByZone(zone Zone, certificate, priva
 	}
 
 	return
-
 }
 
-func (cf *Cloudflare) CreateSSLConfiguration(dnsRecordName, certificate, privateKey string) (r SSLConfiguration, err error) {
+func (cf *Cloudflare) UpsertSSLConfigurationByDNSName(dnsName string, certificate, privateKey string) (r SSLConfiguration, err error) {
+	// new SSL configuration to be updated or inserted
+	newSSLConfig := SSLConfiguration{Certificate: certificate, PrivateKey: privateKey}
 
 	// get zone
-	zone, err := cf.GetZoneByDNSName(dnsRecordName)
+	zone, err := cf.GetZoneByDNSName(dnsName)
 	if err != nil {
 		return r, err
 	}
 
-	// create record at cloudflare api
-	var cloudflareSSLConfigCreateResult createResult
-	cloudflareSSLConfigCreateResult, err = cf.createSSLConfigurationByZone(zone, certificate, privateKey)
+	// get ssl config at cloudflare api
+	var cloudflareSSLConfigListResult listResult
+	cloudflareSSLConfigListResult, err = cf.getSSLConfigurationByZone(zone)
+	if err != nil {
+		return
+	}
+
+	// always get the first returned SSL configuration
+	if len(cloudflareSSLConfigListResult.SSLConfigurations) > 0 {
+		oldSSLConfig := cloudflareSSLConfigListResult.SSLConfigurations[0]
+
+		// update ssl config at cloudflare api
+		var cloudflareSSLConfigUpdateResult sslConfigResult
+		cloudflareSSLConfigUpdateResult, err = cf.updateSSLConfigurationByZoneAndID(zone, oldSSLConfig.ID, newSSLConfig)
+
+		r = cloudflareSSLConfigUpdateResult.SSLConfiguration
+		return
+	}
+
+	// create ssl config at cloudflare api
+	var cloudflareSSLConfigCreateResult sslConfigResult
+	cloudflareSSLConfigCreateResult, err = cf.createSSLConfigurationByZone(zone, newSSLConfig)
 	if err != nil {
 		return
 	}
 
 	r = cloudflareSSLConfigCreateResult.SSLConfiguration
-
 	return
-
 }
 
 func getLastItemsFromSlice(source []string, numberOfItems int) (r []string, err error) {

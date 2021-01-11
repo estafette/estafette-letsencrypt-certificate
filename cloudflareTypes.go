@@ -56,7 +56,14 @@ type SSLConfiguration struct {
 	PrivateKey  string   `json:"private_key,omitempty"`
 }
 
-type createResult struct {
+type listResult struct {
+	Success           bool               `json:"success"`
+	Errors            interface{}        `json:"errors"`
+	Messages          interface{}        `json:"messages"`
+	SSLConfigurations []SSLConfiguration `json:"result,omitempty"`
+}
+
+type sslConfigResult struct {
 	Success          bool             `json:"success"`
 	Errors           interface{}      `json:"errors"`
 	Messages         interface{}      `json:"messages"`
