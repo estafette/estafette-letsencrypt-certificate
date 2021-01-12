@@ -136,7 +136,7 @@ func (cf *Cloudflare) updateSSLConfigurationByZoneAndID(zone Zone, sslConfigID s
 	json.NewDecoder(bytes.NewReader(body)).Decode(&r)
 
 	if !r.Success {
-		err = fmt.Errorf("Updating cloudflare ssl config failed | %v | %v", r.Errors, r.Messages)
+		err = fmt.Errorf("Updating cloudflare ssl config failed for zone '%v' | %v | %v", zone.ID, r.Errors, r.Messages)
 		return
 	}
 
