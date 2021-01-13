@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
 	"time"
 )
 
@@ -48,14 +51,6 @@ type resultInfo struct {
 	TotalCount int `json:"total_count"`
 }
 
-type SSLConfiguration struct {
-	ID          string   `json:"id,omitempty"`
-	Hosts       []string `json:"hosts,omitempty"`
-	ZoneID      string   `json:"zone_id,omitempty"`
-	Certificate string   `json:"certificate,omitempty"`
-	PrivateKey  string   `json:"private_key,omitempty"`
-}
-
 type listResult struct {
 	Success           bool               `json:"success"`
 	Errors            interface{}        `json:"errors"`
@@ -68,4 +63,26 @@ type sslConfigResult struct {
 	Errors           interface{}      `json:"errors"`
 	Messages         interface{}      `json:"messages"`
 	SSLConfiguration SSLConfiguration `json:"result,omitempty"`
+}
+
+type SSLConfiguration struct {
+	ID          string    `json:"id,omitempty"`
+	Hosts       []string  `json:"hosts,omitempty"`
+	ZoneID      string    `json:"zone_id,omitempty"`
+	ExpiresOn   time.Time `json:"expires_on,omitempty"`
+	Certificate string    `json:"certificate,omitempty"`
+	PrivateKey  string    `json:"private_key,omitempty"`
+}
+
+func (sslConfig *SSLConfiguration) CertificateEqual(rawCertificate []byte) (bool, error) {
+	block, _ := pem.Decode(rawCertificate)
+	if block == nil {
+		return false, fmt.Errorf("Decoding certificate failed: %v", rawCertificate)
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false, err
+	}
+
+	return sslConfig.ExpiresOn.Equal(certificate.NotAfter), nil
 }

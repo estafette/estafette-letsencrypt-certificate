@@ -164,9 +164,9 @@ func (cf *Cloudflare) createSSLConfigurationByZone(zone Zone, sslConfig SSLConfi
 	return
 }
 
-func (cf *Cloudflare) UpsertSSLConfigurationByDNSName(dnsName string, certificate, privateKey string) (r SSLConfiguration, err error) {
+func (cf *Cloudflare) UpsertSSLConfigurationByDNSName(dnsName string, certificate, privateKey []byte) (r SSLConfiguration, err error) {
 	// new SSL configuration to be updated or inserted
-	newSSLConfig := SSLConfiguration{Certificate: certificate, PrivateKey: privateKey}
+	newSSLConfig := SSLConfiguration{Certificate: string(certificate), PrivateKey: string(privateKey)}
 
 	// get zone
 	zone, err := cf.GetZoneByDNSName(dnsName)
@@ -185,9 +185,20 @@ func (cf *Cloudflare) UpsertSSLConfigurationByDNSName(dnsName string, certificat
 	if len(cloudflareSSLConfigListResult.SSLConfigurations) > 0 {
 		oldSSLConfig := cloudflareSSLConfigListResult.SSLConfigurations[0]
 
+		// verify if certificate is the same
+		var same bool
+		same, err = oldSSLConfig.CertificateEqual(certificate)
+		if same || err != nil {
+			r = oldSSLConfig
+			return
+		}
+
 		// update ssl config at cloudflare api
 		var cloudflareSSLConfigUpdateResult sslConfigResult
 		cloudflareSSLConfigUpdateResult, err = cf.updateSSLConfigurationByZoneAndID(zone, oldSSLConfig.ID, newSSLConfig)
+		if err != nil {
+			return
+		}
 
 		r = cloudflareSSLConfigUpdateResult.SSLConfiguration
 		return
