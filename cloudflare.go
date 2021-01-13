@@ -181,11 +181,14 @@ func (cf *Cloudflare) UpsertSSLConfigurationByDNSName(dnsName string, certificat
 		return
 	}
 
-	// always get the first returned SSL configuration
+	// always get the first returned SSL configuration since
+	// Reason: most accounts have a default quota of 1 custom certificate per zone,
+	//   so this always updates the same certificate but never creates more than one
 	if len(cloudflareSSLConfigListResult.SSLConfigurations) > 0 {
 		oldSSLConfig := cloudflareSSLConfigListResult.SSLConfigurations[0]
 
 		// verify if certificate is the same
+		// Reason: trying to update a certificate with the same data fails
 		var same bool
 		same, err = oldSSLConfig.CertificateEqual(certificate)
 		if same || err != nil {

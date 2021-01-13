@@ -74,6 +74,9 @@ type SSLConfiguration struct {
 	PrivateKey  string    `json:"private_key,omitempty"`
 }
 
+// this function should return true if the certificate to be uploaded is the same as the one saved at CF
+// right now is only comparing the expiration date, since it's not possible to get the actual certificate data from CF
+// it would also be possible to compare the hostnames, it wasn't done yet in favor of simplicity and lack of necessity so far
 func (sslConfig *SSLConfiguration) CertificateEqual(rawCertificate []byte) (bool, error) {
 	block, _ := pem.Decode(rawCertificate)
 	if block == nil {
