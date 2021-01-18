@@ -39,6 +39,7 @@ const annotationLetsEncryptCertificate string = "estafette.io/letsencrypt-certif
 const annotationLetsEncryptCertificateHostnames string = "estafette.io/letsencrypt-certificate-hostnames"
 const annotationLetsEncryptCertificateCopyToAllNamespaces string = "estafette.io/letsencrypt-certificate-copy-to-all-namespaces"
 const annotationLetsEncryptCertificateLinkedSecret string = "estafette.io/letsencrypt-certificate-linked-secret"
+const annotationLetsEncryptCertificateUploadToCloudflare string = "estafette.io/letsencrypt-certificate-upload-to-cloudflare"
 
 const annotationLetsEncryptCertificateState string = "estafette.io/letsencrypt-certificate-state"
 
@@ -47,6 +48,7 @@ type LetsEncryptCertificateState struct {
 	Enabled             string `json:"enabled"`
 	Hostnames           string `json:"hostnames"`
 	CopyToAllNamespaces bool   `json:"copyToAllNamespaces"`
+	UploadToCloudflare  bool   `json:"uploadToCloudflare"`
 	LastRenewed         string `json:"lastRenewed"`
 	LastAttempt         string `json:"lastAttempt"`
 }
@@ -289,6 +291,13 @@ func getDesiredSecretState(secret *v1.Secret) (state LetsEncryptCertificateState
 			state.CopyToAllNamespaces = b
 		}
 	}
+	uploadToCloudflare, ok := secret.Annotations[annotationLetsEncryptCertificateUploadToCloudflare]
+	if ok {
+		b, err := strconv.ParseBool(uploadToCloudflare)
+		if err == nil {
+			state.UploadToCloudflare = b
+		}
+	}
 
 	return
 }
@@ -529,6 +538,14 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 			}
 		}
 
+		if desiredState.UploadToCloudflare {
+			// upload certificate to cloudflare for each hostname
+			err = uploadToCloudflare(desiredState.Hostnames, certificates.Certificate, certificates.PrivateKey)
+			if err != nil {
+				return status, err
+			}
+		}
+
 		return status, nil
 	}
 
@@ -738,4 +755,21 @@ func validateHostname(hostname string) bool {
 		}
 	}
 	return true
+}
+
+func uploadToCloudflare(hostnames string, certificate, privateKey []byte) (err error) {
+	// init cf
+	authentication := APIAuthentication{Key: *cfAPIKey, Email: *cfAPIEmail}
+	cf := NewCloudflare(authentication)
+
+	// loop hostnames
+	hostnameList := strings.Split(hostnames, ",")
+	for _, hostname := range hostnameList {
+		_, err := cf.UpsertSSLConfigurationByDNSName(hostname, certificate, privateKey)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
