@@ -59,6 +59,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "estafette-letsencrypt-certificate.fullname" . }}
                   key: cloudflareApiKey
+            - name: "DAYS_BEFORE_RENEWAL"
+              value: "{{ .Values.daysBeforeRenewal }}"
             {{- range $key, $value := .Values.extraEnv }}
             - name: {{ $key }}
               value: {{ $value }}

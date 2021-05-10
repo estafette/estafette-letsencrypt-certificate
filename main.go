@@ -64,8 +64,9 @@ var (
 )
 
 var (
-	cfAPIKey   = kingpin.Flag("cloudflare-api-key", "The API key to connect to cloudflare.").Envar("CF_API_KEY").Required().String()
-	cfAPIEmail = kingpin.Flag("cloudflare-api-email", "The API email address to connect to cloudflare.").Envar("CF_API_EMAIL").Required().String()
+	cfAPIKey          = kingpin.Flag("cloudflare-api-key", "The API key to connect to cloudflare.").Envar("CF_API_KEY").Required().String()
+	cfAPIEmail        = kingpin.Flag("cloudflare-api-email", "The API email address to connect to cloudflare.").Envar("CF_API_EMAIL").Required().String()
+	daysBeforeRenewal = kingpin.Flag("days-before-renewal", "Number of days after which to renew the certificate.").Default("60").OverrideDefaultFromEnvar("DAYS_BEFORE_RENEWAL").Int()
 
 	// seed random number
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -346,9 +347,9 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 	}
 
 	// check if letsencrypt is enabled for this secret, hostnames are set and either the hostnames have changed or the certificate is older than 60 days and the last attempt was more than 15 minutes ago
-	if desiredState.Enabled == "true" && len(desiredState.Hostnames) > 0 && time.Since(lastAttempt).Minutes() > 15 && (desiredState.Hostnames != currentState.Hostnames || time.Since(lastRenewed).Hours() > float64(60*24)) {
+	if desiredState.Enabled == "true" && len(desiredState.Hostnames) > 0 && time.Since(lastAttempt).Minutes() > 15 && (desiredState.Hostnames != currentState.Hostnames || time.Since(lastRenewed).Hours() > float64(*daysBeforeRenewal*24)) {
 
-		log.Info().Msgf("[%v] Secret %v.%v - Certificates are more than 60 days old or hostnames have changed (%v), renewing them with Let's Encrypt...", initiator, secret.Name, secret.Namespace, desiredState.Hostnames)
+		log.Info().Msgf("[%v] Secret %v.%v - Certificates are more than %v days old or hostnames have changed (%v), renewing them with Let's Encrypt...", initiator, secret.Name, secret.Namespace, *daysBeforeRenewal, desiredState.Hostnames)
 
 		// 'lock' the secret for 15 minutes by storing the last attempt timestamp to prevent hitting the rate limit if the Let's Encrypt call fails and to prevent the watcher and the fallback polling to operate on the secret at the same time
 		currentState.LastAttempt = time.Now().Format(time.RFC3339)

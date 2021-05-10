@@ -27,6 +27,9 @@ imagePullSecret: {}
 # the following log formats are available: plaintext, console, json, stackdriver, v3 (see https://github.com/estafette/estafette-foundation for more info)
 logFormat: plaintext
 
+# number of days after which to renew the certificate
+daysBeforeRenewal: 60
+
 #
 # GENERIC SETTINGS
 #
