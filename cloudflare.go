@@ -157,7 +157,7 @@ func (cf *Cloudflare) createSSLConfigurationByZone(zone Zone, sslConfig SSLConfi
 	json.NewDecoder(bytes.NewReader(body)).Decode(&r)
 
 	if !r.Success {
-		err = fmt.Errorf("Creating cloudflare ssl config failed | %v | %v", r.Errors, r.Messages)
+		err = fmt.Errorf("Creating cloudflare ssl config failed | zone %v:%v | %v | %v", zone.Name, zone.ID, r.Errors, r.Messages)
 		return
 	}
 
