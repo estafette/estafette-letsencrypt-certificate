@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -20,9 +21,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/go-acme/lego/v3/certificate"
-	"github.com/go-acme/lego/v3/lego"
-	"github.com/go-acme/lego/v3/providers/dns/cloudflare"
+	"github.com/go-acme/lego/v4/certificate"
+	"github.com/go-acme/lego/v4/lego"
+	"github.com/go-acme/lego/v4/providers/dns/cloudflare"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -94,6 +95,7 @@ func main() {
 	// parse command line parameters
 	kingpin.Parse()
 
+	var ctx context.Context
 	// init log format from envvar ESTAFETTE_LOG_FORMAT
 	foundation.InitLoggingFromEnv(foundation.NewApplicationInfo(appgroup, app, version, branch, revision, buildDate))
 
@@ -126,23 +128,23 @@ func main() {
 	gracefulShutdown, waitGroup := foundation.InitGracefulShutdownHandling()
 
 	// watch secrets for all namespaces
-	go watchSecrets(waitGroup, kubeClientset)
+	go watchSecrets(ctx, waitGroup, kubeClientset)
 
-	go listSecrets(waitGroup, kubeClientset)
+	go listSecrets(ctx, waitGroup, kubeClientset)
 
 	// watch namespaces
-	watchNamespaces(waitGroup, kubeClientset, factory, stopper)
+	watchNamespaces(ctx, waitGroup, kubeClientset, factory, stopper)
 
 	foundation.HandleGracefulShutdown(gracefulShutdown, waitGroup)
 }
 
-func watchSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset) {
+func watchSecrets(ctx context.Context, waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset) {
 	// loop indefinitely
 	for {
 		log.Info().Msg("Watching secrets for all namespaces...")
 		timeoutSeconds := int64(300)
 
-		watcher, err := kubeClientset.CoreV1().Secrets("").Watch(metav1.ListOptions{
+		watcher, err := kubeClientset.CoreV1().Secrets("").Watch(ctx, metav1.ListOptions{
 			TimeoutSeconds: &timeoutSeconds,
 		})
 
@@ -164,7 +166,7 @@ func watchSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset
 						break
 					}
 					waitGroup.Add(1)
-					status, err := processSecret(kubeClientset, secret, fmt.Sprintf("watcher:%v", event.Type))
+					status, err := processSecret(ctx, kubeClientset, secret, fmt.Sprintf("watcher:%v", event.Type))
 					certificateTotals.With(prometheus.Labels{"namespace": secret.Namespace, "status": status, "initiator": "watcher", "type": "secret"}).Inc()
 					waitGroup.Done()
 
@@ -183,12 +185,12 @@ func watchSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset
 	}
 }
 
-func listSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset) {
+func listSecrets(ctx context.Context, waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset) {
 	// loop indefinitely
 	for {
 		// get secrets for all namespaces
 		log.Info().Msg("Listing secrets for all namespaces...")
-		secrets, err := kubeClientset.CoreV1().Secrets("").List(metav1.ListOptions{})
+		secrets, err := kubeClientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
 		if err != nil {
 			log.Error().Err(err).Msg("ListSecrets call failed")
 		}
@@ -197,7 +199,7 @@ func listSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset)
 		// loop all secrets
 		for _, secret := range secrets.Items {
 			waitGroup.Add(1)
-			status, err := processSecret(kubeClientset, &secret, "poller")
+			status, err := processSecret(ctx, kubeClientset, &secret, "poller")
 			certificateTotals.With(prometheus.Labels{"namespace": secret.Namespace, "status": status, "initiator": "poller", "type": "secret"}).Inc()
 			waitGroup.Done()
 
@@ -214,7 +216,7 @@ func listSecrets(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset)
 	}
 }
 
-func watchNamespaces(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset, factory informers.SharedInformerFactory, stopper chan struct{}) {
+func watchNamespaces(ctx context.Context, waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Clientset, factory informers.SharedInformerFactory, stopper chan struct{}) {
 	log.Info().Msg("Watching for new namespaces...")
 
 	namespacesInformer := factory.Core().V1().Namespaces().Informer()
@@ -231,7 +233,7 @@ func watchNamespaces(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Client
 
 				log.Info().Msg("Listing secrets with 'copyToAllNamespaces' for all namespaces...")
 
-				secrets, err := kubeClientset.CoreV1().Secrets("").List(metav1.ListOptions{})
+				secrets, err := kubeClientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
 				if err != nil {
 					log.Error().Err(err).Msgf("[%v] ListSecrets call failed", "ns-watcher:ADDED")
 				} else {
@@ -246,7 +248,7 @@ func watchNamespaces(waitGroup *sync.WaitGroup, kubeClientset *kubernetes.Client
 							}
 							if shouldCopyToAllNamespaces {
 								waitGroup.Add(1)
-								err = copySecretToNamespace(kubeClientset, &secret, namespace, "ns-watcher:ADDED")
+								err = copySecretToNamespace(ctx, kubeClientset, &secret, namespace, "ns-watcher:ADDED")
 								waitGroup.Done()
 
 								if err != nil {
@@ -323,7 +325,7 @@ func getCurrentSecretState(secret *v1.Secret) (state LetsEncryptCertificateState
 	return
 }
 
-func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, initiator string, desiredState, currentState LetsEncryptCertificateState) (status string, err error) {
+func makeSecretChanges(ctx context.Context, kubeClientset *kubernetes.Clientset, secret *v1.Secret, initiator string, desiredState, currentState LetsEncryptCertificateState) (status string, err error) {
 
 	status = "failed"
 
@@ -363,7 +365,7 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 		secret.Annotations[annotationLetsEncryptCertificateState] = string(letsEncryptCertificateStateByteArray)
 
 		// update secret, with last attempt; this will fire an event for the watcher, but this shouldn't lead to any action because storing the last attempt locks the secret for 15 minutes
-		_, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Update(secret)
+		_, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Update(ctx, secret, metav1.UpdateOptions{})
 		if err != nil {
 			log.Error().Err(err).Msgf("[%v] Secret %v.%v - Updating secret state has failed", initiator, secret.Name, secret.Namespace)
 			return status, err
@@ -467,7 +469,7 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 		// }
 
 		// reload secret to avoid object has been modified error
-		secret, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Get(secret.Name, metav1.GetOptions{})
+		secret, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Get(ctx, secret.Name, metav1.GetOptions{})
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
@@ -521,7 +523,7 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 		log.Info().Msgf("[%v] Secret %v.%v - Secret has %v data items after writing the certificates...", initiator, secret.Name, secret.Namespace, len(secret.Data))
 
 		// update secret, because the data and state annotation have changed
-		_, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Update(secret)
+		_, err = kubeClientset.CoreV1().Secrets(secret.Namespace).Update(ctx, secret, metav1.UpdateOptions{})
 		if err != nil {
 			log.Error().Err(err)
 			return status, err
@@ -533,7 +535,7 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 
 		if desiredState.CopyToAllNamespaces {
 			// copy to other namespaces if annotation is set to true
-			err = copySecretToAllNamespaces(kubeClientset, secret, initiator)
+			err = copySecretToAllNamespaces(ctx, kubeClientset, secret, initiator)
 			if err != nil {
 				return status, err
 			}
@@ -555,14 +557,14 @@ func makeSecretChanges(kubeClientset *kubernetes.Clientset, secret *v1.Secret, i
 	return status, nil
 }
 
-func copySecretToAllNamespaces(kubeClientset *kubernetes.Clientset, secret *v1.Secret, initiator string) (err error) {
+func copySecretToAllNamespaces(ctx context.Context, kubeClientset *kubernetes.Clientset, secret *v1.Secret, initiator string) (err error) {
 
 	// get all namespaces
-	namespaces, err := kubeClientset.CoreV1().Namespaces().List(metav1.ListOptions{})
+	namespaces, err := kubeClientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 
 	// loop namespaces
 	for _, ns := range namespaces.Items {
-		err := copySecretToNamespace(kubeClientset, secret, &ns, initiator)
+		err := copySecretToNamespace(ctx, kubeClientset, secret, &ns, initiator)
 		if err != nil {
 			return err
 		}
@@ -571,7 +573,7 @@ func copySecretToAllNamespaces(kubeClientset *kubernetes.Clientset, secret *v1.S
 	return nil
 }
 
-func copySecretToNamespace(kubeClientset *kubernetes.Clientset, secret *v1.Secret, namespace *v1.Namespace, initiator string) error {
+func copySecretToNamespace(ctx context.Context, kubeClientset *kubernetes.Clientset, secret *v1.Secret, namespace *v1.Namespace, initiator string) error {
 
 	if namespace.Name == secret.Namespace || namespace.Status.Phase != v1.NamespaceActive {
 		return nil
@@ -580,7 +582,7 @@ func copySecretToNamespace(kubeClientset *kubernetes.Clientset, secret *v1.Secre
 	log.Info().Msgf("[%v] Secret %v.%v - Copying secret to namespace %v...", initiator, secret.Name, secret.Namespace, namespace.Name)
 
 	// check if secret with same name already exists
-	secretInNamespace, err := kubeClientset.CoreV1().Secrets(namespace.Name).Get(secret.Name, metav1.GetOptions{})
+	secretInNamespace, err := kubeClientset.CoreV1().Secrets(namespace.Name).Get(ctx, secret.Name, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		// doesn't exist, create new secret
 		secretInNamespace = &v1.Secret{
@@ -596,7 +598,7 @@ func copySecretToNamespace(kubeClientset *kubernetes.Clientset, secret *v1.Secre
 			Data: secret.Data,
 		}
 
-		_, err = kubeClientset.CoreV1().Secrets(namespace.Name).Create(secretInNamespace)
+		_, err = kubeClientset.CoreV1().Secrets(namespace.Name).Create(ctx, secretInNamespace, metav1.CreateOptions{})
 		if err != nil {
 			return err
 		}
@@ -613,7 +615,7 @@ func copySecretToNamespace(kubeClientset *kubernetes.Clientset, secret *v1.Secre
 	secretInNamespace.Data = secret.Data
 	secretInNamespace.Annotations[annotationLetsEncryptCertificateState] = secret.Annotations[annotationLetsEncryptCertificateState]
 
-	_, err = kubeClientset.CoreV1().Secrets(namespace.Name).Update(secretInNamespace)
+	_, err = kubeClientset.CoreV1().Secrets(namespace.Name).Update(ctx, secretInNamespace, metav1.UpdateOptions{})
 	if err != nil {
 		return err
 	}
@@ -621,8 +623,8 @@ func copySecretToNamespace(kubeClientset *kubernetes.Clientset, secret *v1.Secre
 	return nil
 }
 
-func isEventExist(kubeClientset *kubernetes.Clientset, namespace string, name string) (*v1.Event, string, error) {
-	event, err := kubeClientset.CoreV1().Events(namespace).Get(name, metav1.GetOptions{})
+func isEventExist(ctx context.Context, kubeClientset *kubernetes.Clientset, namespace string, name string) (*v1.Event, string, error) {
+	event, err := kubeClientset.CoreV1().Events(namespace).Get(ctx, name, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		return nil, "not found", err
 	}
@@ -634,12 +636,12 @@ func isEventExist(kubeClientset *kubernetes.Clientset, namespace string, name st
 	return event, "found", nil
 }
 
-func postEventAboutStatus(kubeClientset *kubernetes.Clientset, secret *v1.Secret, eventType string, action string, reason string, message string, kind string, reportingController string, reportingInstance string) (err error) {
+func postEventAboutStatus(ctx context.Context, kubeClientset *kubernetes.Clientset, secret *v1.Secret, eventType string, action string, reason string, message string, kind string, reportingController string, reportingInstance string) (err error) {
 	now := time.Now().UTC()
 	count := int32(1)
 	eventName := fmt.Sprintf("%v-%v", secret.Name, action)
 	eventSource := os.Getenv("HOSTNAME")
-	eventResp, exist, err := isEventExist(kubeClientset, secret.Namespace, eventName)
+	eventResp, exist, err := isEventExist(ctx, kubeClientset, secret.Namespace, eventName)
 
 	if exist == "error" {
 		return err
@@ -653,7 +655,7 @@ func postEventAboutStatus(kubeClientset *kubernetes.Clientset, secret *v1.Secret
 		eventResp.Message = message
 		eventResp.Count = count
 		eventResp.LastTimestamp = metav1.NewTime(now)
-		_, err = kubeClientset.CoreV1().Events(secret.Namespace).Update(eventResp)
+		_, err = kubeClientset.CoreV1().Events(secret.Namespace).Update(ctx, eventResp, metav1.UpdateOptions{})
 
 		if err != nil {
 			log.Error().Msgf("Event %v.%v - Updating Event has an error.\n\t%s", eventResp.Name, eventResp.Namespace, err.Error())
@@ -694,7 +696,7 @@ func postEventAboutStatus(kubeClientset *kubernetes.Clientset, secret *v1.Secret
 		ReportingInstance:   reportingInstance,
 	}
 
-	_, err = kubeClientset.CoreV1().Events(event.Namespace).Create(event)
+	_, err = kubeClientset.CoreV1().Events(event.Namespace).Create(ctx, event, metav1.CreateOptions{})
 	if err != nil {
 		log.Error().Msgf("Event %v.%v - Creating Event has an error. %s", event.Name, event.Namespace, err.Error())
 		return err
@@ -704,25 +706,25 @@ func postEventAboutStatus(kubeClientset *kubernetes.Clientset, secret *v1.Secret
 	return
 }
 
-func processSecret(kubeClientset *kubernetes.Clientset, secret *v1.Secret, initiator string) (status string, err error) {
+func processSecret(ctx context.Context, kubeClientset *kubernetes.Clientset, secret *v1.Secret, initiator string) (status string, err error) {
 	status = "failed"
 
 	if secret != nil {
 
 		desiredState := getDesiredSecretState(secret)
 		currentState := getCurrentSecretState(secret)
-		status, err = makeSecretChanges(kubeClientset, secret, initiator, desiredState, currentState)
+		status, err = makeSecretChanges(ctx, kubeClientset, secret, initiator, desiredState, currentState)
 
 		if err != nil {
 			log.Error().Err(err).Msgf("[%v] Secret %v.%v - Error occurred...", initiator, secret.Name, secret.Namespace)
 		}
 
 		if status == "failed" {
-			err = postEventAboutStatus(kubeClientset, secret, "Warning", strings.Title(status), "FailedObtain", fmt.Sprintf("Certificate for secret %v obtaining failed", secret.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
+			err = postEventAboutStatus(ctx, kubeClientset, secret, "Warning", strings.Title(status), "FailedObtain", fmt.Sprintf("Certificate for secret %v obtaining failed", secret.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
 			return
 		}
 		if status == "succeeded" {
-			err = postEventAboutStatus(kubeClientset, secret, "Normal", strings.Title(status), "SuccessfulObtain", fmt.Sprintf("Certificate for secret %v has been obtained succesfully", secret.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
+			err = postEventAboutStatus(ctx, kubeClientset, secret, "Normal", strings.Title(status), "SuccessfulObtain", fmt.Sprintf("Certificate for secret %v has been obtained succesfully", secret.Name), "Secret", "estafette.io/letsencrypt-certificate", os.Getenv("HOSTNAME"))
 			return
 		}
 	}
