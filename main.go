@@ -95,7 +95,7 @@ func main() {
 	// parse command line parameters
 	kingpin.Parse()
 
-	var ctx context.Context
+	ctx := context.Background()
 	// init log format from envvar ESTAFETTE_LOG_FORMAT
 	foundation.InitLoggingFromEnv(foundation.NewApplicationInfo(appgroup, app, version, branch, revision, buildDate))
 
